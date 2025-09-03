@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "894341793325",
+    "project_id": "listadelacompra-31072",
+    "storage_bucket": "listadelacompra-31072.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:894341793325:android:372fa0896e0052bd8f9aa4",
+        "android_client_info": {
+          "package_name": "com.shoppinglist"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCU4xumCrm3--HT8WBizWGH1n-gHLHQdEM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
