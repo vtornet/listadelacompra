@@ -1,5 +1,4 @@
 // Ruta: app/src/main/java/com/shoppinglist/ui/auth/AuthViewModel.kt
-
 package com.shoppinglist.ui.auth
 
 import androidx.lifecycle.ViewModel
@@ -22,26 +21,36 @@ class AuthViewModel : ViewModel() {
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
+    // NUEVO: indicador de carga
+    private val _loading = MutableStateFlow(false)
+    val loading = _loading.asStateFlow()
+
     fun signIn(email: String, password: String) {
         viewModelScope.launch {
+            _loading.value = true
             try {
                 auth.signInWithEmailAndPassword(email, password).await()
                 _user.value = auth.currentUser
                 _error.value = null
             } catch (e: Exception) {
-                _error.value = e.message
+                _error.value = e.message ?: "No se pudo iniciar sesión."
+            } finally {
+                _loading.value = false
             }
         }
     }
 
     fun signUp(email: String, password: String) {
         viewModelScope.launch {
+            _loading.value = true
             try {
                 auth.createUserWithEmailAndPassword(email, password).await()
                 _user.value = auth.currentUser
                 _error.value = null
             } catch (e: Exception) {
-                _error.value = e.message
+                _error.value = e.message ?: "No se pudo registrar."
+            } finally {
+                _loading.value = false
             }
         }
     }
