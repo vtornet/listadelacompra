@@ -2,111 +2,111 @@ package com.shoppinglist.data.repository
 
 import android.net.Uri
 import android.util.Log
-import com.google.firebase.FirebaseApp
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.storage.FirebaseStorage
-import com.google.firebase.storage.StorageException
 import com.shoppinglist.data.models.ShoppingItem
 import com.shoppinglist.data.models.ShoppingList
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Dispatchers
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.UUID
 
+/**
+ * Repositorio central de Firestore/Storage para listas e items.
+ * Colecciones:
+ *  - lists (raíz) -> documentos: { name, ownerUid, membersEmails[] }
+ *  - shoppingItems (raíz) -> documentos: { name, inShoppingList, listId, addedByUid, imageUrl, price, previousPrice }
+ */
 class ShoppingListRepository {
 
     private val firestore = FirebaseFirestore.getInstance()
+    private val storage = FirebaseStorage.getInstance()
+
     private val listsCol = firestore.collection("lists")
     private val itemsCol = firestore.collection("shoppingItems")
 
-    // Storage: usa el bucket de google-services.json
-    private val storage: FirebaseStorage by lazy {
-        val bucketFromOptions: String? = FirebaseApp.getInstance().options.storageBucket
-        val gsUrl = when {
-            bucketFromOptions.isNullOrBlank() -> null
-            bucketFromOptions.startsWith("gs://") -> bucketFromOptions
-            else -> "gs://$bucketFromOptions"
-        }
-        val s = if (gsUrl != null) FirebaseStorage.getInstance(gsUrl) else FirebaseStorage.getInstance()
-        Log.d("StorageDebug", "Using bucket=${s.reference.bucket} (gsUrl=$gsUrl)")
-        s
-    }
+    /* ===================== LISTAS ===================== */
 
-    /* ============== LISTAS ============== */
-
-    suspend fun getOrCreateDefaultListId(ownerUid: String, ownerEmail: String?): String {
-        val owned = listsCol.whereEqualTo("ownerUid", ownerUid).limit(1).get().await()
-        if (!owned.isEmpty) {
-            val d = owned.documents.first()
-            return d.id
-        }
-        val doc = listsCol.document()
-        val data = hashMapOf(
-            "name" to "Mi lista",
-            "ownerUid" to ownerUid,
-            "membersEmails" to emptyList<String>()
-        )
-        doc.set(data).await()
-        return doc.id
-    }
-
+    /** Observa en tiempo real todas las listas del usuario (propietario o invitado por email). */
+    /** Observa en tiempo real todas las listas del usuario (propietario o invitado por email). */
     fun observeListsForUser(uid: String, email: String?): Flow<List<ShoppingList>> = callbackFlow {
-        if (uid.isBlank()) { trySend(emptyList()); awaitClose {}; return@callbackFlow }
+        // Mantenemos dos mapas independientes y fusionamos en cada evento.
+        val ownerMap = linkedMapOf<String, ShoppingList>()
+        val memberMap = linkedMapOf<String, ShoppingList>()
 
-        val map = mutableMapOf<String, ShoppingList>()
+        fun sendMerged() {
+            val merged = LinkedHashMap<String, ShoppingList>()
+            // Si una lista aparece en ambos, preferimos la de propietario.
+            ownerMap.forEach { (k, v) -> merged[k] = v }
+            memberMap.forEach { (k, v) -> merged[k] = v }
+            trySend(merged.values.toList())
+        }
 
-        val regOwned = listsCol.whereEqualTo("ownerUid", uid)
-            .addSnapshotListener { snap, _ ->
-                snap?.documents?.forEach { d ->
-                    map[d.id] = ShoppingList(
-                        id = d.id,
-                        name = d.getString("name") ?: "",
-                        ownerUid = d.getString("ownerUid"),
-                        membersEmails = (d.get("membersEmails") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
-                    )
+        var regOwner: ListenerRegistration? = null
+        var regMember: ListenerRegistration? = null
+
+        if (uid.isNotBlank()) {
+            regOwner = listsCol.whereEqualTo("ownerUid", uid)
+                .addSnapshotListener { snap, err ->
+                    if (err != null) {
+                        Log.w(TAG, "observeListsForUser(owner) error", err)
+                        return@addSnapshotListener
+                    }
+                    ownerMap.clear()
+                    if (snap != null) {
+                        for (d in snap.documents) {
+                            ownerMap[d.id] = ShoppingList(
+                                id = d.id,
+                                name = d.getString("name") ?: "",
+                                ownerUid = d.getString("ownerUid"),
+                                membersEmails = (d.get("membersEmails") as? List<*>)?.filterIsInstance<String>()
+                                    ?: emptyList()
+                            )
+                        }
+                    }
+                    sendMerged()
                 }
-                trySend(map.values.sortedBy { it.name })
-            }
+        }
 
-        var regMember: com.google.firebase.firestore.ListenerRegistration? = null
         if (!email.isNullOrBlank()) {
             regMember = listsCol.whereArrayContains("membersEmails", email)
-                .addSnapshotListener { snap, _ ->
-                    snap?.documents?.forEach { d ->
-                        map[d.id] = ShoppingList(
-                            id = d.id,
-                            name = d.getString("name") ?: "",
-                            ownerUid = d.getString("ownerUid"),
-                            membersEmails = (d.get("membersEmails") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
-                        )
+                .addSnapshotListener { snap, err ->
+                    if (err != null) {
+                        Log.w(TAG, "observeListsForUser(member) error", err)
+                        return@addSnapshotListener
                     }
-                    trySend(map.values.sortedBy { it.name })
+                    memberMap.clear()
+                    if (snap != null) {
+                        for (d in snap.documents) {
+                            memberMap[d.id] = ShoppingList(
+                                id = d.id,
+                                name = d.getString("name") ?: "",
+                                ownerUid = d.getString("ownerUid"),
+                                membersEmails = (d.get("membersEmails") as? List<*>)?.filterIsInstance<String>()
+                                    ?: emptyList()
+                            )
+                        }
+                    }
+                    sendMerged()
                 }
         }
 
         awaitClose {
-            regOwned.remove()
+            regOwner?.remove()
             regMember?.remove()
         }
     }
 
-    suspend fun addMemberEmail(listId: String, email: String) {
-        listsCol.document(listId).update("membersEmails", FieldValue.arrayUnion(email)).await()
-    }
-
-    /** Crear nueva lista (devuelve id). */
+    /** Crea una lista y devuelve su ID. (Escribe los campos que esperan las reglas) */
     suspend fun createList(name: String, ownerUid: String): String {
         val doc = listsCol.document()
         val data = hashMapOf(
-            "name" to name.trim(),
+            "name" to name,
             "ownerUid" to ownerUid,
             "membersEmails" to emptyList<String>()
         )
@@ -114,131 +114,192 @@ class ShoppingListRepository {
         return doc.id
     }
 
-    /** Renombrar lista (dueño). */
+    /** Renombra una lista. */
     suspend fun renameList(listId: String, newName: String) {
-        listsCol.document(listId).update("name", newName.trim()).await()
+        listsCol.document(listId).update("name", newName).await()
     }
 
-    /** Eliminar lista (no borra items). */
-    suspend fun deleteList(listId: String) {
+    /**
+     * Elimina una lista + TODOS sus items + sus imágenes en Storage.
+     * Compatible con lotes de Firestore (500 por batch).
+     */
+    suspend fun deleteListDeep(listId: String) {
+        // 1) Recuperar items de la lista
+        val itemsSnap = itemsCol.whereEqualTo("listId", listId).get().await()
+        val docs = itemsSnap.documents
+
+        // 1.1) Borrar imágenes si las hay
+        for (d in docs) {
+            val url = d.getString("imageUrl")
+            if (!url.isNullOrBlank()) {
+                try { deleteImageByUrl(url) } catch (e: Exception) {
+                    Log.w(TAG, "delete image fail", e)
+                }
+            }
+        }
+
+        // 2) Borrar items por lotes de 500
+        var idx = 0
+        while (idx < docs.size) {
+            val batch = firestore.batch()
+            for (i in idx until kotlin.math.min(idx + 500, docs.size)) {
+                batch.delete(docs[i].reference)
+            }
+            batch.commit().await()
+            idx += 500
+        }
+
+        // 3) Borrar documento de lista
         listsCol.document(listId).delete().await()
     }
 
-    /* ============== ITEMS ============== */
+    /** Devuelve/crea una lista "Mi lista" para el usuario al iniciar. */
+    suspend fun getOrCreateDefaultListId(uid: String, email: String?): String {
+        val existing = listsCol.whereEqualTo("ownerUid", uid).limit(1).get().await()
+        if (!existing.isEmpty) return existing.documents.first().id
+        return createList("Mi lista", uid)
+    }
 
+    /** Invitar miembro por email a una lista. */
+    suspend fun addMemberEmail(listId: String, email: String) {
+        val ref = listsCol.document(listId)
+        firestore.runTransaction { tx ->
+            val snap = tx.get(ref)
+            val current = (snap.get("membersEmails") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+            if (!current.contains(email)) tx.update(ref, "membersEmails", current + email)
+        }.await()
+    }
+
+    /* ===================== ITEMS ===================== */
+
+    /** Items en tiempo real de una lista. */
     fun getItemsForList(listId: String): Flow<List<ShoppingItem>> = callbackFlow {
-        if (listId.isBlank()) { trySend(emptyList()); awaitClose {}; return@callbackFlow }
-        val reg = itemsCol.whereEqualTo("listId", listId)
+        val registration = itemsCol
+            .whereEqualTo("listId", listId)
             .addSnapshotListener { snap, err ->
-                if (err != null) { trySend(emptyList()); return@addSnapshotListener }
-                val list = snap?.documents?.mapNotNull { d ->
-                    d.toObject(ShoppingItem::class.java)?.copy(id = d.id)
-                } ?: emptyList()
-                trySend(list)
+                if (err != null) {
+                    Log.w(TAG, "getItemsForList error", err)
+                    return@addSnapshotListener
+                }
+                if (snap != null) {
+                    val out = snap.documents.map { d -> d.toShoppingItem() }
+                        .sortedWith(
+                            compareBy<ShoppingItem> { !it.inShoppingList }
+                                .thenBy { it.name.lowercase() }
+                        )
+                    trySend(out)
+                }
             }
-        awaitClose { reg.remove() }
+        awaitClose { registration.remove() }
     }
 
-    suspend fun addItemToList(listId: String, item: ShoppingItem) {
-        val doc = if (item.id.isBlank()) itemsCol.document() else itemsCol.document(item.id)
-        doc.set(item.copy(id = doc.id, listId = listId)).await()
+    /** Añade un item a una lista. */
+    suspend fun addItemToList(listId: String, item: ShoppingItem): String {
+        val doc = itemsCol.document()
+        val data = item.toMap(listId = listId, id = doc.id)
+        doc.set(data).await()
+        return doc.id
     }
 
+    /** Actualiza un item (usa el id del propio item). */
     suspend fun updateItem(item: ShoppingItem) {
-        require(item.id.isNotBlank()) { "Item sin id" }
-        itemsCol.document(item.id).set(item).await()
+        val id = item.id
+        require(id.isNotBlank()) { "item.id vacío" }
+        val data = item.toMap(listId = item.listId, id = id)
+        itemsCol.document(id).set(data).await()
     }
 
+    /** Elimina un item por ID. */
     suspend fun deleteItem(itemId: String) {
         itemsCol.document(itemId).delete().await()
     }
 
-    suspend fun migrateMyItemsToList(ownerUid: String, listId: String) {
-        val snap = itemsCol.whereEqualTo("addedByUid", ownerUid).get().await()
-        for (d in snap.documents) {
-            val hasList = d.getString("listId")
-            if (hasList.isNullOrBlank()) {
-                d.reference.update("listId", listId).await()
-            }
-        }
-    }
-
-    /* ============== IMÁGENES (STORAGE) ============== */
+    /* ===================== STORAGE ===================== */
 
     suspend fun uploadImage(uri: Uri): String {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: "anon"
-        val fileName = "${System.currentTimeMillis()}.jpg"
-        val ref = storage.reference.child("items/$uid/$fileName")
-        Log.d("StorageDebug", "putFile to bucket=${storage.reference.bucket} path=${ref.path}")
+        val fileName = "images/${System.currentTimeMillis()}_${UUID.randomUUID()}.jpg"
+        val ref = storage.reference.child(fileName)
         ref.putFile(uri).await()
-
-        val delays = listOf(150L, 300L, 600L, 1200L, 2000L)
-        var lastError: Exception? = null
-        for (attempt in 0..delays.size) {
-            try {
-                val url = ref.downloadUrl.await().toString()
-                Log.d("StorageDebug", "downloadUrl OK: $url")
-                return url
-            } catch (e: Exception) {
-                lastError = e
-                val notFound = (e as? StorageException)?.errorCode == StorageException.ERROR_OBJECT_NOT_FOUND ||
-                        (e.message?.contains("Object does not exist", true) == true)
-                Log.w("StorageDebug", "downloadUrl attempt#$attempt failed: ${e.message}")
-                if (!notFound || attempt == delays.size) break
-                delay(delays[attempt])
-            }
-        }
-        throw lastError ?: IllegalStateException("No se pudo obtener la URL de descarga")
+        return ref.downloadUrl.await().toString()
     }
 
     suspend fun deleteImageByUrl(url: String) {
-        try { storage.getReferenceFromUrl(url).delete().await() } catch (_: Exception) { }
+        try {
+            val ref = storage.getReferenceFromUrl(url)
+            ref.delete().await()
+        } catch (e: Exception) {
+            Log.w(TAG, "deleteImageByUrl: $url", e)
+        }
     }
 
-    /* ============== Open Food Facts (nombre + imagen) ============== */
+    /* ===================== CÓDIGOS DE BARRA ===================== */
 
     data class BarcodeInfo(val name: String?, val imageUrl: String?)
 
-    suspend fun resolveBarcodeInfo(barcode: String): BarcodeInfo? = withContext(Dispatchers.IO) {
-        var conn: HttpURLConnection? = null
-        try {
+    /** Consulta OpenFoodFacts. Si falla, devuelve null y se usará el número del código. */
+    suspend fun resolveBarcodeInfo(barcode: String): BarcodeInfo? {
+        return try {
             val url = URL("https://world.openfoodfacts.org/api/v0/product/$barcode.json")
-            conn = (url.openConnection() as HttpURLConnection).apply {
+            val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
-                connectTimeout = 4000
-                readTimeout = 4000
-                setRequestProperty("User-Agent", "ListaDeLaCompra/1.0 (Android)")
+                connectTimeout = 7000
+                readTimeout = 7000
             }
-            if (conn.responseCode != 200) return@withContext null
-            val body = conn.inputStream.bufferedReader().use { it.readText() }
-            val root = JSONObject(body)
-            if (root.optInt("status") != 1) return@withContext null
-            val p = root.optJSONObject("product") ?: return@withContext null
-
-            fun pick(vararg keys: String): String? {
-                for (k in keys) {
-                    val v = p.optString(k, null)
-                    if (!v.isNullOrBlank()) return v
-                }
-                return null
+            conn.inputStream.use { `in` ->
+                val body = `in`.readBytes().toString(Charsets.UTF_8)
+                val json = JSONObject(body)
+                val status = json.optInt("status", 0)
+                if (status != 1) return null
+                val prod = json.optJSONObject("product") ?: return null
+                val name = prod.optString("product_name_es")
+                    .ifBlank { prod.optString("product_name") }
+                val image = prod.optString("image_small_url")
+                    .ifBlank { prod.optString("image_url") }
+                BarcodeInfo(name.ifBlank { null }, image.ifBlank { null })
             }
-
-            val name = pick("product_name_es", "product_name", "generic_name_es", "generic_name")
-            val brand = p.optString("brands", null)?.split(',')?.firstOrNull()?.trim()
-                ?.takeIf { it.isNotBlank() }
-            val finalName = when {
-                name != null && brand != null -> "$name ($brand)"
-                name != null -> name
-                brand != null -> brand
-                else -> null
-            }
-            val imageUrl = pick("image_front_url", "image_highres_url", "image_url")
-
-            BarcodeInfo(finalName, imageUrl)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "resolveBarcodeInfo fail", e)
             null
-        } finally {
-            conn?.disconnect()
         }
+    }
+
+    /* ===================== Helpers ===================== */
+
+    private fun ShoppingItem.toMap(listId: String?, id: String): Map<String, Any?> = hashMapOf(
+        "id" to id,
+        "name" to name,
+        "inShoppingList" to inShoppingList,
+        "listId" to (listId ?: this.listId),
+        "addedByUid" to addedByUid,
+        "imageUrl" to imageUrl,
+        "price" to price,
+        "previousPrice" to previousPrice,
+        "quantity" to quantity
+    )
+
+    private fun com.google.firebase.firestore.DocumentSnapshot.toShoppingItem(): ShoppingItem {
+        val data = this.data ?: emptyMap()
+        return ShoppingItem(
+            id = this.id,
+            name = data["name"] as? String ?: "",
+            inShoppingList = data["inShoppingList"] as? Boolean ?: true,
+            listId = data["listId"] as? String,
+            addedByUid = data["addedByUid"] as? String,
+            imageUrl = data["imageUrl"] as? String,
+            price = (data["price"] as? Number)?.toDouble(),
+            previousPrice = (data["previousPrice"] as? Number)?.toDouble(),
+            quantity = (data["quantity"] as? Number)?.toInt() ?: 1
+        )
+    }
+
+    companion object {
+        private const val TAG = "ShoppingListRepo"
+    }
+
+    /* ======= Migración opcional (no-op si no existe) ======= */
+    suspend fun migrateMyItemsToList(uid: String, listId: String) {
+        // Si tuvieras una colección antigua ("myItems"), migra aquí.
+        // En este proyecto no es necesaria: lo dejamos como no-op.
+        return
     }
 }

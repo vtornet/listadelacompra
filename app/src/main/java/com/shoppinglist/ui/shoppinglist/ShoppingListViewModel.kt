@@ -20,7 +20,6 @@ class ShoppingListViewModel : ViewModel() {
     private val repository = ShoppingListRepository()
     private val auth = Firebase.auth
 
-    // Usuario actual
     private val _uid = MutableStateFlow(auth.currentUser?.uid ?: "")
     private val _email = MutableStateFlow(auth.currentUser?.email)
     private val authListener = FirebaseAuth.AuthStateListener { fb ->
@@ -30,14 +29,12 @@ class ShoppingListViewModel : ViewModel() {
     init { auth.addAuthStateListener(authListener) }
     override fun onCleared() { auth.removeAuthStateListener(authListener) }
 
-    // Listas visibles para mí
     val lists: StateFlow<List<ShoppingList>> = combine(_uid, _email) { uid, email ->
         uid to email
     }.flatMapLatest { (uid, email) ->
         repository.observeListsForUser(uid, email)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    // Lista actual
     private val _currentListId = MutableStateFlow("")
     val currentListId: StateFlow<String> = _currentListId.asStateFlow()
 
@@ -45,7 +42,6 @@ class ShoppingListViewModel : ViewModel() {
         ls.firstOrNull { it.id == id }?.name ?: "Mi lista"
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "Mi lista")
 
-    // Items de la lista actual
     val items: StateFlow<List<ShoppingItem>> = currentListId
         .flatMapLatest { id -> repository.getItemsForList(id) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -57,7 +53,6 @@ class ShoppingListViewModel : ViewModel() {
     val error = _error.asStateFlow()
     fun clearError() { _error.value = null }
 
-    // --- Diálogo de duplicados ---
     data class DuplicatePrompt(val name: String, val onConfirm: () -> Unit)
     private val _duplicate = MutableStateFlow<DuplicatePrompt?>(null)
     val duplicate: StateFlow<DuplicatePrompt?> = _duplicate.asStateFlow()
@@ -65,45 +60,35 @@ class ShoppingListViewModel : ViewModel() {
     fun confirmDuplicate() { _duplicate.value?.onConfirm?.invoke(); _duplicate.value = null }
 
     init {
-        // Asegurar lista por defecto + migrar items antiguos sin listId
         viewModelScope.launch {
             val uid = _uid.value
             if (uid.isBlank()) return@launch
             _loading.value = true
             try {
-                val listId = withTimeout(10_000) {
-                    repository.getOrCreateDefaultListId(uid, _email.value)
-                }
+                val listId = withTimeout(10_000) { repository.getOrCreateDefaultListId(uid, _email.value) }
                 _currentListId.value = listId
                 repository.migrateMyItemsToList(uid, listId)
             } catch (e: Exception) {
                 _error.value = e.message ?: "No se pudo inicializar tu lista."
-            } finally {
-                _loading.value = false
-            }
+            } finally { _loading.value = false }
         }
     }
 
-    /* ======= Acciones de lista ======= */
+    /* ===== Listas ===== */
 
-    fun switchList(listId: String) {
-        if (listId.isNotBlank()) _currentListId.value = listId
-    }
+    fun switchList(listId: String) { if (listId.isNotBlank()) _currentListId.value = listId }
 
     fun inviteMember(email: String) {
         val listId = _currentListId.value
         if (listId.isBlank()) return
         viewModelScope.launch {
             _loading.value = true
-            try {
-                withTimeout(10_000) { repository.addMemberEmail(listId, email.trim()) }
-            } catch (e: Exception) {
-                _error.value = e.message ?: "No se pudo invitar."
-            } finally { _loading.value = false }
+            try { withTimeout(10_000) { repository.addMemberEmail(listId, email.trim()) } }
+            catch (e: Exception) { _error.value = e.message ?: "No se pudo invitar." }
+            finally { _loading.value = false }
         }
     }
 
-    /** Crear una lista y devolver el id vía callback. Selecciona automáticamente esa lista. */
     fun createList(name: String, onCreated: (String) -> Unit = {}) {
         val uid = _uid.value
         if (uid.isBlank()) return
@@ -115,18 +100,27 @@ class ShoppingListViewModel : ViewModel() {
                 onCreated(newId)
             } catch (e: Exception) {
                 _error.value = e.message ?: "No se pudo crear la lista."
-            } finally {
-                _loading.value = false
-            }
+            } finally { _loading.value = false }
         }
     }
 
-    /** Borrar lista (si es la actual, intenta seleccionar otra). */
+    fun renameCurrentList(newName: String) {
+        val id = _currentListId.value
+        if (id.isBlank()) return
+        viewModelScope.launch {
+            _loading.value = true
+            try { repository.renameList(id, newName) }
+            catch (e: Exception) { _error.value = e.message ?: "No se pudo renombrar la lista." }
+            finally { _loading.value = false }
+        }
+    }
+
+    /** Ahora borra en cascada (items + lista). */
     fun deleteList(listId: String) {
         viewModelScope.launch {
             _loading.value = true
             try {
-                repository.deleteList(listId)
+                repository.deleteListDeep(listId)
                 if (_currentListId.value == listId) {
                     val remaining = lists.value.firstOrNull { it.id != listId }?.id ?: ""
                     _currentListId.value = remaining
@@ -137,9 +131,8 @@ class ShoppingListViewModel : ViewModel() {
         }
     }
 
-    /* ======= Ítems ======= */
+    /* ===== Ítems ===== */
 
-    // Normaliza nombres: sin acentos y minúsculas
     private fun norm(s: String): String =
         Normalizer.normalize(s.trim(), Normalizer.Form.NFD)
             .replace("\\p{Mn}+".toRegex(), "")
@@ -153,16 +146,82 @@ class ShoppingListViewModel : ViewModel() {
     fun addItem(name: String) {
         if (name.isBlank()) return
         val listId = _currentListId.value
-
-        // Duplicado: dispara diálogo
         if (existsByName(name)) {
-            _duplicate.value = DuplicatePrompt(name) {
-                actuallyAddItem(name, listId)
-            }
+            _duplicate.value = DuplicatePrompt(name) { actuallyAddItem(name, listId) }
             return
         }
         actuallyAddItem(name, listId)
     }
+
+    /** Aumenta cantidad (mín. 1). */
+    fun incrementQuantity(item: ShoppingItem) {
+        viewModelScope.launch {
+            try {
+                repository.updateItem(item.copy(quantity = (item.quantity + 1).coerceAtLeast(1)))
+            } catch (e: Exception) {
+                _error.value = e.message
+            }
+        }
+    }
+
+    /** Disminuye cantidad (mín. 1). */
+    fun decrementQuantity(item: ShoppingItem) {
+        viewModelScope.launch {
+            try {
+                val newQ = (item.quantity - 1).coerceAtLeast(1)
+                if (newQ != item.quantity) repository.updateItem(item.copy(quantity = newQ))
+            } catch (e: Exception) {
+                _error.value = e.message
+            }
+        }
+    }
+
+    /** Fija cantidad explícita (mín. 1). */
+    fun setQuantity(item: ShoppingItem, n: Int) {
+        if (n < 1) return
+        viewModelScope.launch {
+            try {
+                repository.updateItem(item.copy(quantity = n))
+            } catch (e: Exception) {
+                _error.value = e.message
+            }
+        }
+    }
+
+    /** Opción para el diálogo de duplicado: sumar 1 a la cantidad del existente. */
+    fun mergeDuplicateByName(name: String) {
+        viewModelScope.launch {
+            try {
+                val existing = items.value.firstOrNull { it.name.equals(name, ignoreCase = true) }
+                if (existing != null) {
+                    repository.updateItem(existing.copy(quantity = existing.quantity + 1))
+                }
+            } catch (e: Exception) {
+                _error.value = e.message
+            } finally {
+                _duplicate.value = null
+            }
+        }
+    }
+
+
+    /** Marca todos los artículos "por comprar" como comprados. */
+    fun markAllToBuyAsPurchased() {
+        viewModelScope.launch {
+            _loading.value = true
+            try {
+                val toBuy = items.value.filter { it.inShoppingList }
+                for (it in toBuy) {
+                    repository.updateItem(it.copy(inShoppingList = false))
+                }
+            } catch (e: Exception) {
+                _error.value = e.message ?: "No se pudieron marcar los artículos."
+            } finally {
+                _loading.value = false
+            }
+        }
+    }
+
 
     private fun actuallyAddItem(name: String, listId: String) {
         viewModelScope.launch {
@@ -183,7 +242,6 @@ class ShoppingListViewModel : ViewModel() {
         }
     }
 
-    /** Escáner → obtiene nombre/imagen; si ya existe el nombre, pide confirmación. */
     fun addItemFromBarcode(barcode: String) {
         val listId = _currentListId.value
         viewModelScope.launch {
@@ -191,11 +249,8 @@ class ShoppingListViewModel : ViewModel() {
             try {
                 val info = withTimeout(8_000) { repository.resolveBarcodeInfo(barcode) }
                 val finalName = (info?.name ?: barcode).trim()
-
                 if (existsByName(finalName)) {
-                    _duplicate.value = DuplicatePrompt(finalName) {
-                        actuallyAddScanned(finalName, info?.imageUrl, listId)
-                    }
+                    _duplicate.value = DuplicatePrompt(finalName) { actuallyAddScanned(finalName, info?.imageUrl, listId) }
                 } else {
                     actuallyAddScanned(finalName, info?.imageUrl, listId)
                 }
@@ -227,11 +282,9 @@ class ShoppingListViewModel : ViewModel() {
     fun toggleItemStatus(item: ShoppingItem) {
         viewModelScope.launch {
             _loading.value = true
-            try {
-                withTimeout(10_000) { repository.updateItem(item.copy(inShoppingList = !item.inShoppingList)) }
-            } catch (e: Exception) {
-                _error.value = e.message ?: "No se pudo actualizar el estado."
-            } finally { _loading.value = false }
+            try { withTimeout(10_000) { repository.updateItem(item.copy(inShoppingList = !item.inShoppingList)) } }
+            catch (e: Exception) { _error.value = e.message ?: "No se pudo actualizar el estado." }
+            finally { _loading.value = false }
         }
     }
 
@@ -262,11 +315,8 @@ class ShoppingListViewModel : ViewModel() {
 
     fun renameItem(item: ShoppingItem, newName: String) {
         if (newName.isBlank() || newName == item.name) return
-        // Si renombrar lo convertiría en duplicado, pedimos confirmación
         if (existsByName(newName)) {
-            _duplicate.value = DuplicatePrompt(newName) {
-                actuallyRename(item, newName)
-            }
+            _duplicate.value = DuplicatePrompt(newName) { actuallyRename(item, newName) }
             return
         }
         actuallyRename(item, newName)
@@ -275,11 +325,9 @@ class ShoppingListViewModel : ViewModel() {
     private fun actuallyRename(item: ShoppingItem, newName: String) {
         viewModelScope.launch {
             _loading.value = true
-            try {
-                withTimeout(10_000) { repository.updateItem(item.copy(name = newName.trim())) }
-            } catch (e: Exception) {
-                _error.value = e.message ?: "No se pudo renombrar el artículo."
-            } finally { _loading.value = false }
+            try { withTimeout(10_000) { repository.updateItem(item.copy(name = newName.trim())) } }
+            catch (e: Exception) { _error.value = e.message ?: "No se pudo renombrar el artículo." }
+            finally { _loading.value = false }
         }
     }
 
@@ -298,11 +346,9 @@ class ShoppingListViewModel : ViewModel() {
     fun updatePrice(item: ShoppingItem, newPrice: Double) {
         viewModelScope.launch {
             _loading.value = true
-            try {
-                withTimeout(10_000) { repository.updateItem(item.copy(previousPrice = item.price, price = newPrice)) }
-            } catch (e: Exception) {
-                _error.value = e.message ?: "No se pudo actualizar el precio."
-            } finally { _loading.value = false }
+            try { withTimeout(10_000) { repository.updateItem(item.copy(previousPrice = item.price, price = newPrice)) } }
+            catch (e: Exception) { _error.value = e.message ?: "No se pudo actualizar el precio." }
+            finally { _loading.value = false }
         }
     }
 }
