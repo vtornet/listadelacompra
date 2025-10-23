@@ -15,13 +15,14 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardActions
@@ -30,6 +31,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddAPhoto
@@ -40,6 +42,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -183,29 +186,34 @@ fun ShoppingListScreen(
             }
 
             // Buscador + switch
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                CompactSearchBar(
                     value = query,
                     onValueChange = { query = it },
-                    singleLine = true,
-                    label = { Text("Buscar en la lista") },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    placeholder = "Buscar en la lista"
                 )
-                Spacer(Modifier.width(8.dp))
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     Text("Ver comprados", style = MaterialTheme.typography.labelSmall)
                     Switch(checked = showPurchased, onCheckedChange = { showPurchased = it })
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
 
             AddItemRow(
                 onAddItem = { name -> shoppingListViewModel.addItem(name) },
                 onScan = { showScanner = true }
             )
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
 
             SummaryCard(
                 toBuyCount = pendingCount,
@@ -214,7 +222,7 @@ fun ShoppingListScreen(
                 currencyFormatter = currencyFormatter
             )
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 32.dp),
@@ -377,16 +385,18 @@ private fun AddItemRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        OutlinedTextField(
+        CompactInputField(
             value = text,
             onValueChange = { text = it },
-            singleLine = true,
-            label = { Text("Nuevo artículo") },
+            placeholder = "Nuevo artículo",
             modifier = Modifier.weight(1f)
         )
         FilledTonalButton(
             enabled = text.isNotBlank(),
-            onClick = { onAddItem(text.trim()); text = "" }
+            onClick = {
+                onAddItem(text.trim())
+                text = ""
+            }
         ) { Text("Añadir") }
         FilledTonalButton(onClick = onScan) { Text("Escanear") }
     }
@@ -406,8 +416,8 @@ private fun SummaryCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
                 text = "Resumen de la compra",
@@ -417,11 +427,23 @@ private fun SummaryCard(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                SummaryStat(title = "Pendientes", value = "$toBuyCount uds")
-                SummaryStat(title = "Comprados", value = "$purchasedCount uds")
-                SummaryStat(title = "Total", value = "${toBuyCount + purchasedCount} uds")
+                SummaryStat(
+                    title = "Pendientes",
+                    value = "$toBuyCount uds",
+                    modifier = Modifier.weight(1f)
+                )
+                SummaryStat(
+                    title = "Comprados",
+                    value = "$purchasedCount uds",
+                    modifier = Modifier.weight(1f)
+                )
+                SummaryStat(
+                    title = "Total",
+                    value = "${toBuyCount + purchasedCount} uds",
+                    modifier = Modifier.weight(1f)
+                )
             }
 
             Divider()
@@ -444,10 +466,98 @@ private fun SummaryCard(
 }
 
 @Composable
-private fun SummaryStat(title: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+private fun SummaryStat(title: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
         Text(text = title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(text = value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        Text(text = value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun CompactSearchBar(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String
+) {
+    Surface(
+        modifier = modifier.heightIn(min = 0.dp),
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 2.dp,
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            modifier = Modifier
+                .heightIn(min = 44.dp)
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(8.dp))
+            Box(modifier = Modifier.weight(1f)) {
+                if (value.isEmpty()) {
+                    Text(
+                        text = placeholder,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            if (value.isNotEmpty()) {
+                Spacer(Modifier.width(4.dp))
+                IconButton(onClick = { onValueChange("") }) {
+                    Icon(Icons.Filled.Close, contentDescription = "Limpiar búsqueda")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactInputField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String
+) {
+    Surface(
+        modifier = modifier.heightIn(min = 0.dp),
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 1.dp,
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Box(
+            modifier = Modifier
+                .heightIn(min = 44.dp)
+                .padding(horizontal = 12.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            if (value.isEmpty()) {
+                Text(
+                    text = placeholder,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
 
@@ -596,6 +706,21 @@ private fun ShoppingListRow(
                         }
                     }
                 }
+
+                AssistChip(
+                    onClick = onPriceClick,
+                    label = { Text(if (hasPrice) "Actualizar precio" else "Añadir precio") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.AttachMoney,
+                            contentDescription = null
+                        )
+                    },
+                    modifier = Modifier.padding(start = 12.dp),
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    )
+                )
             }
 
             Row(
