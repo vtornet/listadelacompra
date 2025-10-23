@@ -177,7 +177,7 @@ fun ShoppingListScreen(
         Column(
             Modifier
                 .padding(padding)
-                .padding(8.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
                 .fillMaxSize()
         ) {
             if (showProgress) {
@@ -189,7 +189,7 @@ fun ShoppingListScreen(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 CompactSearchBar(
                     value = query,
@@ -206,14 +206,14 @@ fun ShoppingListScreen(
                 }
             }
 
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(4.dp))
 
             AddItemRow(
                 onAddItem = { name -> shoppingListViewModel.addItem(name) },
                 onScan = { showScanner = true }
             )
 
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(4.dp))
 
             SummaryCard(
                 toBuyCount = pendingCount,
@@ -222,7 +222,7 @@ fun ShoppingListScreen(
                 currencyFormatter = currencyFormatter
             )
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 32.dp),
@@ -383,7 +383,7 @@ private fun AddItemRow(
     var text by rememberSaveable { mutableStateOf("") }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         CompactInputField(
             value = text,
@@ -396,9 +396,183 @@ private fun AddItemRow(
             onClick = {
                 onAddItem(text.trim())
                 text = ""
-            }
+            },
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
         ) { Text("Añadir") }
-        FilledTonalButton(onClick = onScan) { Text("Escanear") }
+        FilledTonalButton(
+            onClick = onScan,
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+        ) { Text("Escanear") }
+    }
+}
+
+@Composable
+private fun SummaryCard(
+    toBuyCount: Int,
+    purchasedCount: Int,
+    totalPurchased: Double,
+    currencyFormatter: NumberFormat
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 1.dp,
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                SummaryStat(
+                    title = "Pendientes",
+                    value = "$toBuyCount uds",
+                    modifier = Modifier.weight(1f)
+                )
+                SummaryStat(
+                    title = "Comprados",
+                    value = "$purchasedCount uds",
+                    modifier = Modifier.weight(1f)
+                )
+                SummaryStat(
+                    title = "Total",
+                    value = "${toBuyCount + purchasedCount} uds",
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Importe comprado",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = currencyFormatter.format(totalPurchased),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SummaryStat(title: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+private fun CompactSearchBar(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String
+) {
+    Surface(
+        modifier = modifier.heightIn(min = 0.dp),
+        shape = RoundedCornerShape(14.dp),
+        tonalElevation = 1.dp,
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            modifier = Modifier
+                .heightIn(min = 36.dp)
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(8.dp))
+            Box(modifier = Modifier.weight(1f)) {
+                if (value.isEmpty()) {
+                    Text(
+                        text = placeholder,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            if (value.isNotEmpty()) {
+                Spacer(Modifier.width(4.dp))
+                IconButton(
+                    onClick = { onValueChange("") },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(Icons.Filled.Close, contentDescription = "Limpiar búsqueda")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactInputField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String
+) {
+    Surface(
+        modifier = modifier.heightIn(min = 0.dp),
+        shape = RoundedCornerShape(14.dp),
+        tonalElevation = 1.dp,
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Box(
+            modifier = Modifier
+                .heightIn(min = 36.dp)
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            if (value.isEmpty()) {
+                Text(
+                    text = placeholder,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
 
@@ -601,8 +775,7 @@ private fun ShoppingListRow(
     val hasPrice = item.price != null
     val quantity = max(1, item.quantity)
     val totalPrice = item.price?.times(quantity)
-
-    ElevatedCard(
+    Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp, vertical = 6.dp),
@@ -618,48 +791,12 @@ private fun ShoppingListRow(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Checkbox(
-                    checked = !item.inShoppingList,
-                    onCheckedChange = { onToggleStatus() }
-                )
+                IconButton(
+                    onClick = onDecQty,
+                    enabled = quantity > 1
+                ) { Icon(Icons.Filled.Remove, contentDescription = "Restar") }
 
-                SubcomposeAsyncImage(
-                    model = item.imageUrl,
-                    contentDescription = item.name,
-                    loading = { CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp) },
-                    error = {},
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .padding(start = 8.dp, end = 12.dp)
-                        .size(52.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { MutableInteractionSource() }
-                        ) {
-                            if (hasImage) onImageClick(item.imageUrl!!) else onAddImageClick()
-                        }
-                )
-
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = item.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        IconButton(
-                            onClick = onDecQty,
-                            enabled = quantity > 1
-                        ) { Icon(Icons.Filled.Remove, contentDescription = "Restar") }
+                Text("x$quantity", style = MaterialTheme.typography.bodyMedium)
 
                         Text("x$quantity", style = MaterialTheme.typography.bodyMedium)
 
@@ -686,6 +823,17 @@ private fun ShoppingListRow(
                             DropdownMenuItem(
                                 text = { Text("Quitar foto") },
                                 onClick = { menuOpen = false; onRemoveImage() }
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text(if (hasPrice) "Actualizar precio" else "Añadir precio") },
+                            leadingIcon = { Icon(Icons.Filled.AttachMoney, null) },
+                            onClick = { menuOpen = false; onPriceClick() }
+                        )
+                        if (hasPrice) {
+                            DropdownMenuItem(
+                                text = { Text("Quitar precio") },
+                                onClick = { menuOpen = false; onClearPrice() }
                             )
                         }
                         DropdownMenuItem(
@@ -833,6 +981,29 @@ private fun ShoppingListRow(
                         containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                     )
                 )
+            }
+
+            if (hasPrice) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = buildString {
+                        append("Precio: ")
+                        append(currencyFormatter.format(item.price!!))
+                        totalPrice?.takeIf { quantity > 1 }?.let {
+                            append(" · Total ")
+                            append(currencyFormatter.format(it))
+                        }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                item.previousPrice?.takeIf { it != item.price }?.let { previous ->
+                    Text(
+                        text = "Anterior: ${currencyFormatter.format(previous)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
             }
         }
     }
