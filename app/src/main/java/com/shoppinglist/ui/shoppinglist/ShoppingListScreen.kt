@@ -896,29 +896,42 @@ private fun ShoppingListRow(
                     )
                 }
             }
+
+            if (hasPrice) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = buildString {
+                        append("Precio: ")
+                        append(currencyFormatter.format(item.price!!))
+                        totalPrice?.takeIf { quantity > 1 }?.let {
+                            append(" · Total ")
+                            append(currencyFormatter.format(it))
+                        }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                item.previousPrice?.takeIf { it != item.price }?.let { previous ->
+                    Text(
+                        text = "Anterior: ${currencyFormatter.format(previous)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
         }
     }
 
     if (showRename) {
-        AlertDialog(
-            onDismissRequest = { showRename = false },
-            title = { Text("Renombrar artículo") },
-            text = {
-                OutlinedTextField(
-                    value = renameText,
-                    onValueChange = { renameText = it },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val txt = renameText.trim()
-                    if (txt.isNotEmpty()) onRename(txt)
-                    showRename = false
-                }) { Text("Guardar") }
-            },
-            dismissButton = { TextButton(onClick = { showRename = false }) { Text("Cancelar") } }
+        RenameItemDialog(
+            value = renameText,
+            onValueChange = { renameText = it },
+            onDismiss = { showRename = false },
+            onConfirm = {
+                val trimmed = renameText.trim()
+                if (trimmed.isNotEmpty()) onRename(trimmed)
+                showRename = false
+            }
         )
     }
 }
@@ -1003,6 +1016,31 @@ private fun PriceDialog(
                 TextButton(onClick = onDismiss) { Text("Cancelar") }
             }
         }
+    )
+}
+
+@Composable
+private fun RenameItemDialog(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Renombrar artículo") },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("Guardar") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
     )
 }
 
