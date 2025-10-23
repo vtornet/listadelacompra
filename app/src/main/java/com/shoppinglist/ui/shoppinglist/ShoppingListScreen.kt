@@ -778,6 +778,62 @@ private fun ShoppingListRow(
                     )
                 )
             }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (hasPrice) {
+                        Text("Precio unitario", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            currencyFormatter.format(item.price!!),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        totalPrice?.let {
+                            Text(
+                                "Total (${quantity} uds): ${currencyFormatter.format(it)}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        val previous = item.previousPrice
+                        if (previous != null && previous != item.price) {
+                            Text(
+                                "Anterior: ${currencyFormatter.format(previous)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "Añade un precio para controlar el gasto",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
+
+                AssistChip(
+                    onClick = onPriceClick,
+                    label = { Text(if (hasPrice) "Actualizar precio" else "Añadir precio") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.AttachMoney,
+                            contentDescription = null
+                        )
+                    },
+                    modifier = Modifier.padding(start = 12.dp),
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    )
+                )
+            }
         }
     }
 
