@@ -116,7 +116,7 @@ class ShoppingListViewModel : ViewModel() {
     }
 
     /** Ahora borra en cascada (items + lista). */
-    fun deleteList(listId: String) {
+    fun deleteListCascade(listId: String) {
         viewModelScope.launch {
             _loading.value = true
             try {
