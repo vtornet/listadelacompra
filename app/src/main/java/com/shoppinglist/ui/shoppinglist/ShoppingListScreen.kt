@@ -397,11 +397,11 @@ private fun AddItemRow(
                 onAddItem(text.trim())
                 text = ""
             },
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
         ) { Text("Añadir") }
         FilledTonalButton(
             onClick = onScan,
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
         ) { Text("Escanear") }
     }
 }
@@ -414,20 +414,21 @@ private fun ShoppingListSummaryCard(
     currencyFormatter: NumberFormat
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp)),
         tonalElevation = 1.dp,
         color = MaterialTheme.colorScheme.surfaceVariant
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 ShoppingListSummaryStat(
                     title = "Pendientes",
@@ -497,15 +498,16 @@ private fun ShoppingListSearchBar(
     placeholder: String
 ) {
     Surface(
-        modifier = modifier.heightIn(min = 0.dp),
-        shape = RoundedCornerShape(14.dp),
+        modifier = modifier
+            .heightIn(min = 0.dp)
+            .clip(RoundedCornerShape(12.dp)),
         tonalElevation = 1.dp,
         color = MaterialTheme.colorScheme.surfaceVariant
     ) {
         Row(
             modifier = Modifier
-                .heightIn(min = 36.dp)
-                .padding(horizontal = 12.dp, vertical = 4.dp),
+                .heightIn(min = 34.dp)
+                .padding(horizontal = 10.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -547,15 +549,16 @@ private fun ShoppingListInputField(
     placeholder: String
 ) {
     Surface(
-        modifier = modifier.heightIn(min = 0.dp),
-        shape = RoundedCornerShape(14.dp),
+        modifier = modifier
+            .heightIn(min = 0.dp)
+            .clip(RoundedCornerShape(12.dp)),
         tonalElevation = 1.dp,
         color = MaterialTheme.colorScheme.surfaceVariant
     ) {
         Box(
             modifier = Modifier
-                .heightIn(min = 36.dp)
-                .padding(horizontal = 12.dp, vertical = 4.dp),
+                .heightIn(min = 34.dp)
+                .padding(horizontal = 10.dp, vertical = 4.dp),
             contentAlignment = Alignment.CenterStart
         ) {
             if (value.isEmpty()) {
@@ -576,19 +579,20 @@ private fun ShoppingListInputField(
     }
 }
 
-@Composable private fun ShoppingListSectionHeader(title: String, color: Color) {
-    Surface(
-        color = color.copy(alpha = 0.12f),
-        shape = RoundedCornerShape(12.dp),
+@Composable
+private fun ShoppingListSectionHeader(title: String, color: Color) {
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(color.copy(alpha = 0.12f))
     ) {
         Text(
             text = title,
             style = MaterialTheme.typography.labelLarge,
             color = color,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
         )
     }
 }
@@ -822,6 +826,29 @@ private fun ShoppingListRow(
                         containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                     )
                 )
+            }
+
+            if (hasPrice) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = buildString {
+                        append("Precio: ")
+                        append(currencyFormatter.format(item.price!!))
+                        totalPrice?.takeIf { quantity > 1 }?.let {
+                            append(" · Total ")
+                            append(currencyFormatter.format(it))
+                        }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                item.previousPrice?.takeIf { it != item.price }?.let { previous ->
+                    Text(
+                        text = "Anterior: ${currencyFormatter.format(previous)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
             }
 
             if (hasPrice) {
