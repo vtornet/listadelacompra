@@ -706,6 +706,21 @@ private fun ShoppingListRow(
                         }
                     }
                 }
+
+                AssistChip(
+                    onClick = onPriceClick,
+                    label = { Text(if (hasPrice) "Actualizar precio" else "Añadir precio") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.AttachMoney,
+                            contentDescription = null
+                        )
+                    },
+                    modifier = Modifier.padding(start = 12.dp),
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    )
+                )
             }
 
             Row(
