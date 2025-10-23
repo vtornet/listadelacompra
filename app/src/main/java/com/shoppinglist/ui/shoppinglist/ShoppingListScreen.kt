@@ -12,30 +12,49 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -45,7 +64,9 @@ import coil.compose.SubcomposeAsyncImage
 import com.shoppinglist.data.models.ShoppingItem
 import com.shoppinglist.ui.auth.AuthViewModel
 import kotlinx.coroutines.delay
+import java.text.NumberFormat
 import java.util.Locale
+import kotlin.math.max
 
 @Composable
 fun ShoppingListScreen(
@@ -77,6 +98,7 @@ fun ShoppingListScreen(
 
     var itemForImage by remember { mutableStateOf<ShoppingItem?>(null) }
     var fullImageUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    var priceDialogItem by remember { mutableStateOf<ShoppingItem?>(null) }
 
     var showProgress by remember { mutableStateOf(false) }
     LaunchedEffect(isLoading) {
@@ -107,6 +129,17 @@ fun ShoppingListScreen(
     val (toBuy, purchased) = remember(filteredSorted) {
         filteredSorted.partition { it.inShoppingList }
     }
+
+    val currencyFormatter = remember { NumberFormat.getCurrencyInstance() }
+    val currencySymbol = remember(currencyFormatter) {
+        runCatching { currencyFormatter.currency?.getSymbol(Locale.getDefault()) }
+            .getOrNull() ?: "€"
+    }
+    val totalPurchasedAmount = remember(purchased) {
+        purchased.sumOf { (it.price ?: 0.0) * max(1, it.quantity) }
+    }
+    val pendingCount = remember(toBuy) { toBuy.sumOf { max(1, it.quantity) } }
+    val purchasedCount = remember(purchased) { purchased.sumOf { max(1, it.quantity) } }
 
     Scaffold(
         topBar = {
@@ -153,35 +186,54 @@ fun ShoppingListScreen(
             }
 
             // Buscador + switch
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                CompactSearchBar(
                     value = query,
                     onValueChange = { query = it },
-                    singleLine = true,
-                    label = { Text("Buscar en la lista") },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    placeholder = "Buscar en la lista"
                 )
-                Spacer(Modifier.width(8.dp))
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     Text("Ver comprados", style = MaterialTheme.typography.labelSmall)
                     Switch(checked = showPurchased, onCheckedChange = { showPurchased = it })
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
 
             AddItemRow(
                 onAddItem = { name -> shoppingListViewModel.addItem(name) },
                 onScan = { showScanner = true }
             )
 
-            Spacer(Modifier.height(8.dp))
-            LazyColumn(Modifier.fillMaxSize()) {
+            Spacer(Modifier.height(6.dp))
+
+            SummaryCard(
+                toBuyCount = pendingCount,
+                purchasedCount = purchasedCount,
+                totalPurchased = totalPurchasedAmount,
+                currencyFormatter = currencyFormatter
+            )
+
+            Spacer(Modifier.height(10.dp))
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 item { ListHeader("POR COMPRAR", Color(0xFFB00020)) }
 
                 items(toBuy, key = { it.id }) { row ->
                     ShoppingListRow(
                         item = row,
+                        currencyFormatter = currencyFormatter,
                         onToggleStatus = { shoppingListViewModel.toggleItemStatus(row) },
                         onIncQty = { shoppingListViewModel.incrementQuantity(row) },
                         onDecQty = { shoppingListViewModel.decrementQuantity(row) },
@@ -194,7 +246,9 @@ fun ShoppingListScreen(
                         onImageClick = { url -> fullImageUrl = url },
                         onRemoveImage = { shoppingListViewModel.removeImageFromItem(row) },
                         onRename = { newName -> shoppingListViewModel.renameItem(row, newName) },
-                        onDelete = { shoppingListViewModel.deleteItem(row) }
+                        onDelete = { shoppingListViewModel.deleteItem(row) },
+                        onPriceClick = { priceDialogItem = row },
+                        onClearPrice = { shoppingListViewModel.clearPrice(row) }
                     )
                 }
 
@@ -205,6 +259,7 @@ fun ShoppingListScreen(
                     items(purchased, key = { it.id }) { row ->
                         ShoppingListRow(
                             item = row,
+                            currencyFormatter = currencyFormatter,
                             onToggleStatus = { shoppingListViewModel.toggleItemStatus(row) },
                             onIncQty = { shoppingListViewModel.incrementQuantity(row) },
                             onDecQty = { shoppingListViewModel.decrementQuantity(row) },
@@ -217,7 +272,9 @@ fun ShoppingListScreen(
                             onImageClick = { url -> fullImageUrl = url },
                             onRemoveImage = { shoppingListViewModel.removeImageFromItem(row) },
                             onRename = { newName -> shoppingListViewModel.renameItem(row, newName) },
-                            onDelete = { shoppingListViewModel.deleteItem(row) }
+                            onDelete = { shoppingListViewModel.deleteItem(row) },
+                            onPriceClick = { priceDialogItem = row },
+                            onClearPrice = { shoppingListViewModel.clearPrice(row) }
                         )
                     }
                 }
@@ -290,8 +347,20 @@ fun ShoppingListScreen(
         FullscreenImageDialog(imageUrl = url, onDismiss = { fullImageUrl = null })
     }
 
+    priceDialogItem?.let { item ->
+        PriceDialog(
+            itemName = item.name,
+            initialPrice = item.price,
+            currencyFormatter = currencyFormatter,
+            currencySymbol = currencySymbol,
+            onDismiss = { priceDialogItem = null },
+            onConfirm = { shoppingListViewModel.updatePrice(item, it) },
+            onRemove = item.price?.let { { shoppingListViewModel.clearPrice(item) } }
+        )
+    }
+
     // Confirmación "marcar todo"
-        if (confirmMarkAll) {
+    if (confirmMarkAll) {
         AlertDialog(
             onDismissRequest = { confirmMarkAll = false },
             title = { Text("Marcar todo como comprado") },
@@ -312,33 +381,207 @@ private fun AddItemRow(
     onScan: () -> Unit
 ) {
     var text by rememberSaveable { mutableStateOf("") }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        CompactInputField(
             value = text,
             onValueChange = { text = it },
-            singleLine = true,
-            label = { Text("Nuevo artículo") },
+            placeholder = "Nuevo artículo",
             modifier = Modifier.weight(1f)
         )
-        Spacer(Modifier.width(8.dp))
         FilledTonalButton(
             enabled = text.isNotBlank(),
-            onClick = { onAddItem(text.trim()); text = "" }
+            onClick = {
+                onAddItem(text.trim())
+                text = ""
+            }
         ) { Text("Añadir") }
-        Spacer(Modifier.width(8.dp))
         FilledTonalButton(onClick = onScan) { Text("Escanear") }
     }
 }
 
+@Composable
+private fun SummaryCard(
+    toBuyCount: Int,
+    purchasedCount: Int,
+    totalPurchased: Double,
+    currencyFormatter: NumberFormat
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "Resumen de la compra",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                SummaryStat(
+                    title = "Pendientes",
+                    value = "$toBuyCount uds",
+                    modifier = Modifier.weight(1f)
+                )
+                SummaryStat(
+                    title = "Comprados",
+                    value = "$purchasedCount uds",
+                    modifier = Modifier.weight(1f)
+                )
+                SummaryStat(
+                    title = "Total",
+                    value = "${toBuyCount + purchasedCount} uds",
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Divider()
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "Importe comprado",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = currencyFormatter.format(totalPurchased),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SummaryStat(title: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(text = title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(text = value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun CompactSearchBar(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String
+) {
+    Surface(
+        modifier = modifier.heightIn(min = 0.dp),
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 2.dp,
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            modifier = Modifier
+                .heightIn(min = 44.dp)
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(8.dp))
+            Box(modifier = Modifier.weight(1f)) {
+                if (value.isEmpty()) {
+                    Text(
+                        text = placeholder,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            if (value.isNotEmpty()) {
+                Spacer(Modifier.width(4.dp))
+                IconButton(onClick = { onValueChange("") }) {
+                    Icon(Icons.Filled.Close, contentDescription = "Limpiar búsqueda")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactInputField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String
+) {
+    Surface(
+        modifier = modifier.heightIn(min = 0.dp),
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 1.dp,
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Box(
+            modifier = Modifier
+                .heightIn(min = 44.dp)
+                .padding(horizontal = 12.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            if (value.isEmpty()) {
+                Text(
+                    text = placeholder,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
 @Composable private fun ListHeader(title: String, color: Color) {
-    Text(title, style = MaterialTheme.typography.titleMedium, color = color,
-        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
-    Divider()
+    Surface(
+        color = color.copy(alpha = 0.12f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 4.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            color = color,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+        )
+    }
 }
 
 @Composable
 private fun ShoppingListRow(
     item: ShoppingItem,
+    currencyFormatter: NumberFormat,
     onToggleStatus: () -> Unit,
     onIncQty: () -> Unit,
     onDecQty: () -> Unit,
@@ -347,67 +590,84 @@ private fun ShoppingListRow(
     onRemoveImage: () -> Unit,
     onRename: (String) -> Unit,
     onDelete: () -> Unit,
+    onPriceClick: () -> Unit,
+    onClearPrice: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     var renameText by rememberSaveable(item.id) { mutableStateOf(item.name) }
     val hasImage = !item.imageUrl.isNullOrBlank()
+    val hasPrice = item.price != null
+    val quantity = max(1, item.quantity)
+    val totalPrice = item.price?.times(quantity)
 
-    Row(
+    ElevatedCard(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(18.dp)
     ) {
-        Checkbox(
-            checked = !item.inShoppingList,
-            onCheckedChange = { onToggleStatus() }
-        )
-
-        SubcomposeAsyncImage(
-            model = item.imageUrl,
-            contentDescription = item.name,
-            loading = { CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp) },
-            error = {},
-            contentScale = ContentScale.Crop,
+        Column(
             modifier = Modifier
-                .padding(start = 8.dp, end = 12.dp)
-                .size(40.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .clickable(
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() }
-                ) {
-                    if (hasImage) onImageClick(item.imageUrl!!) else onAddImageClick()
-                }
-        )
-
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = item.name,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.height(4.dp))
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(
-                    onClick = onDecQty,
-                    enabled = (item.quantity ?: 1) > 1
-                ) { Icon(Icons.Filled.Remove, contentDescription = "Restar") }
+                Checkbox(
+                    checked = !item.inShoppingList,
+                    onCheckedChange = { onToggleStatus() }
+                )
 
-                Text("x${item.quantity ?: 1}", style = MaterialTheme.typography.bodyMedium)
+                SubcomposeAsyncImage(
+                    model = item.imageUrl,
+                    contentDescription = item.name,
+                    loading = { CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp) },
+                    error = {},
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .padding(start = 8.dp, end = 12.dp)
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) {
+                            if (hasImage) onImageClick(item.imageUrl!!) else onAddImageClick()
+                        }
+                )
 
-                IconButton(onClick = onIncQty) {
-                    Icon(Icons.Filled.Add, contentDescription = "Sumar")
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = item.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        IconButton(
+                            onClick = onDecQty,
+                            enabled = quantity > 1
+                        ) { Icon(Icons.Filled.Remove, contentDescription = "Restar") }
+
+                        Text("x$quantity", style = MaterialTheme.typography.bodyMedium)
+
+                        IconButton(onClick = onIncQty) {
+                            Icon(Icons.Filled.Add, contentDescription = "Sumar")
+                        }
+                    }
                 }
-
-                Spacer(Modifier.weight(1f))
 
                 Box {
                     IconButton(onClick = { menuOpen = true }) {
@@ -438,8 +698,70 @@ private fun ShoppingListRow(
                             leadingIcon = { Icon(Icons.Filled.Delete, null) },
                             onClick = { menuOpen = false; onDelete() }
                         )
+                        if (hasPrice) {
+                            DropdownMenuItem(
+                                text = { Text("Quitar precio") },
+                                onClick = { menuOpen = false; onClearPrice() }
+                            )
+                        }
                     }
                 }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (hasPrice) {
+                        Text("Precio unitario", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            currencyFormatter.format(item.price!!),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        totalPrice?.let {
+                            Text(
+                                "Total (${quantity} uds): ${currencyFormatter.format(it)}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        val previous = item.previousPrice
+                        if (previous != null && previous != item.price) {
+                            Text(
+                                "Anterior: ${currencyFormatter.format(previous)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "Añade un precio para controlar el gasto",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
+
+                AssistChip(
+                    onClick = onPriceClick,
+                    label = { Text(if (hasPrice) "Actualizar precio" else "Añadir precio") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.AttachMoney,
+                            contentDescription = null
+                        )
+                    },
+                    modifier = Modifier.padding(start = 12.dp),
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    )
+                )
             }
         }
     }
@@ -467,6 +789,90 @@ private fun ShoppingListRow(
         )
     }
 }
+
+@Composable
+private fun PriceDialog(
+    itemName: String,
+    initialPrice: Double?,
+    currencyFormatter: NumberFormat,
+    currencySymbol: String,
+    onDismiss: () -> Unit,
+    onConfirm: (Double) -> Unit,
+    onRemove: (() -> Unit)?
+) {
+    var text by rememberSaveable(initialPrice) {
+        mutableStateOf(
+            initialPrice?.let { String.format(Locale.getDefault(), "%.2f", it) } ?: ""
+        )
+    }
+    var error by remember { mutableStateOf<String?>(null) }
+    val focusManager = LocalFocusManager.current
+
+    fun handleConfirm() {
+        val sanitized = text.replace(',', '.').trim()
+        val price = sanitized.toDoubleOrNull()
+        if (price != null) {
+            onConfirm(price)
+            onDismiss()
+        } else {
+            error = "Introduce un número válido"
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Precio del producto") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "Introduce el precio unitario para \"$itemName\".",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = {
+                        text = it
+                        error = null
+                    },
+                    singleLine = true,
+                    label = { Text("Precio") },
+                    prefix = { Text(currencySymbol) },
+                    keyboardOptions = KeyboardOptions(
+                        imeAction = ImeAction.Done,
+                        keyboardType = KeyboardType.Decimal
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            focusManager.clearFocus()
+                            handleConfirm()
+                        }
+                    ),
+                    isError = error != null,
+                    supportingText = error?.let { err ->
+                        { Text(err, color = MaterialTheme.colorScheme.error) }
+                    }
+                )
+            }
+        },
+        confirmButton = {
+            FilledTonalButton(onClick = { handleConfirm() }) {
+                Text("Guardar")
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                onRemove?.let {
+                    TextButton(onClick = {
+                        it()
+                        onDismiss()
+                    }) { Text("Quitar precio") }
+                }
+                TextButton(onClick = onDismiss) { Text("Cancelar") }
+            }
+        }
+    )
+}
+
 @Composable
 private fun FullscreenImageDialog(
     imageUrl: String,

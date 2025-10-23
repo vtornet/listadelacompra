@@ -192,7 +192,7 @@ fun HomeScreen(
             text = { Text("¿Seguro que deseas eliminar «${toDelete.name.ifBlank { toDelete.id }}»? Esta acción no se puede deshacer.") },
             confirmButton = {
                 TextButton(onClick = {
-                    shoppingListViewModel.deleteList(toDelete.id)
+                    shoppingListViewModel.deleteListCascade(toDelete.id)
                     pendingDelete = null
                 }) { Text("Eliminar") }
             },
