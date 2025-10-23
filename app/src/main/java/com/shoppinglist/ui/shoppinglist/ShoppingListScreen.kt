@@ -191,7 +191,7 @@ fun ShoppingListScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                CompactSearchBar(
+                ShoppingListSearchBar(
                     value = query,
                     onValueChange = { query = it },
                     modifier = Modifier.weight(1f),
@@ -215,7 +215,7 @@ fun ShoppingListScreen(
 
             Spacer(Modifier.height(4.dp))
 
-            SummaryCard(
+            ShoppingListSummaryCard(
                 toBuyCount = pendingCount,
                 purchasedCount = purchasedCount,
                 totalPurchased = totalPurchasedAmount,
@@ -228,7 +228,7 @@ fun ShoppingListScreen(
                 contentPadding = PaddingValues(bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                item { ListHeader("POR COMPRAR", Color(0xFFB00020)) }
+                item { ShoppingListSectionHeader("POR COMPRAR", Color(0xFFB00020)) }
 
                 items(toBuy, key = { it.id }) { row ->
                     ShoppingListRow(
@@ -254,7 +254,7 @@ fun ShoppingListScreen(
 
                 if (showPurchased) {
                     item { Spacer(Modifier.height(16.dp)) }
-                    item { ListHeader("COMPRADO", Color(0xFF008000)) }
+                    item { ShoppingListSectionHeader("COMPRADO", Color(0xFF008000)) }
 
                     items(purchased, key = { it.id }) { row ->
                         ShoppingListRow(
@@ -385,7 +385,7 @@ private fun AddItemRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        CompactInputField(
+        ShoppingListInputField(
             value = text,
             onValueChange = { text = it },
             placeholder = "Nuevo artículo",
@@ -407,7 +407,7 @@ private fun AddItemRow(
 }
 
 @Composable
-private fun SummaryCard(
+private fun ShoppingListSummaryCard(
     toBuyCount: Int,
     purchasedCount: Int,
     totalPurchased: Double,
@@ -429,17 +429,17 @@ private fun SummaryCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                SummaryStat(
+                ShoppingListSummaryStat(
                     title = "Pendientes",
                     value = "$toBuyCount uds",
                     modifier = Modifier.weight(1f)
                 )
-                SummaryStat(
+                ShoppingListSummaryStat(
                     title = "Comprados",
                     value = "$purchasedCount uds",
                     modifier = Modifier.weight(1f)
                 )
-                SummaryStat(
+                ShoppingListSummaryStat(
                     title = "Total",
                     value = "${toBuyCount + purchasedCount} uds",
                     modifier = Modifier.weight(1f)
@@ -470,7 +470,7 @@ private fun SummaryCard(
 }
 
 @Composable
-private fun SummaryStat(title: String, value: String, modifier: Modifier = Modifier) {
+private fun ShoppingListSummaryStat(title: String, value: String, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -490,7 +490,7 @@ private fun SummaryStat(title: String, value: String, modifier: Modifier = Modif
 }
 
 @Composable
-private fun CompactSearchBar(
+private fun ShoppingListSearchBar(
     value: String,
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -540,7 +540,7 @@ private fun CompactSearchBar(
 }
 
 @Composable
-private fun CompactInputField(
+private fun ShoppingListInputField(
     value: String,
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -576,166 +576,7 @@ private fun CompactInputField(
     }
 }
 
-@Composable
-private fun SummaryCard(
-    toBuyCount: Int,
-    purchasedCount: Int,
-    totalPurchased: Double,
-    currencyFormatter: NumberFormat
-) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                text = "Resumen de la compra",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                SummaryStat(
-                    title = "Pendientes",
-                    value = "$toBuyCount uds",
-                    modifier = Modifier.weight(1f)
-                )
-                SummaryStat(
-                    title = "Comprados",
-                    value = "$purchasedCount uds",
-                    modifier = Modifier.weight(1f)
-                )
-                SummaryStat(
-                    title = "Total",
-                    value = "${toBuyCount + purchasedCount} uds",
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            Divider()
-
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = "Importe comprado",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = currencyFormatter.format(totalPurchased),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SummaryStat(title: String, value: String, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        Text(text = title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(text = value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-@Composable
-private fun CompactSearchBar(
-    value: String,
-    onValueChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    placeholder: String
-) {
-    Surface(
-        modifier = modifier.heightIn(min = 0.dp),
-        shape = RoundedCornerShape(16.dp),
-        tonalElevation = 2.dp,
-        color = MaterialTheme.colorScheme.surfaceVariant
-    ) {
-        Row(
-            modifier = Modifier
-                .heightIn(min = 44.dp)
-                .padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(8.dp))
-            Box(modifier = Modifier.weight(1f)) {
-                if (value.isEmpty()) {
-                    Text(
-                        text = placeholder,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                BasicTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-            if (value.isNotEmpty()) {
-                Spacer(Modifier.width(4.dp))
-                IconButton(onClick = { onValueChange("") }) {
-                    Icon(Icons.Filled.Close, contentDescription = "Limpiar búsqueda")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CompactInputField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    placeholder: String
-) {
-    Surface(
-        modifier = modifier.heightIn(min = 0.dp),
-        shape = RoundedCornerShape(16.dp),
-        tonalElevation = 1.dp,
-        color = MaterialTheme.colorScheme.surfaceVariant
-    ) {
-        Box(
-            modifier = Modifier
-                .heightIn(min = 44.dp)
-                .padding(horizontal = 12.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            if (value.isEmpty()) {
-                Text(
-                    text = placeholder,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-    }
-}
-
-@Composable private fun ListHeader(title: String, color: Color) {
+@Composable private fun ShoppingListSectionHeader(title: String, color: Color) {
     Surface(
         color = color.copy(alpha = 0.12f),
         shape = RoundedCornerShape(12.dp),
@@ -981,6 +822,29 @@ private fun ShoppingListRow(
                         containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                     )
                 )
+            }
+
+            if (hasPrice) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = buildString {
+                        append("Precio: ")
+                        append(currencyFormatter.format(item.price!!))
+                        totalPrice?.takeIf { quantity > 1 }?.let {
+                            append(" · Total ")
+                            append(currencyFormatter.format(it))
+                        }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                item.previousPrice?.takeIf { it != item.price }?.let { previous ->
+                    Text(
+                        text = "Anterior: ${currencyFormatter.format(previous)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
             }
 
             if (hasPrice) {
