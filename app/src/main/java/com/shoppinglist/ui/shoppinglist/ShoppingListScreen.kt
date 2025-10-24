@@ -99,6 +99,8 @@ fun ShoppingListScreen(
     var itemForImage by remember { mutableStateOf<ShoppingItem?>(null) }
     var fullImageUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var priceDialogItem by remember { mutableStateOf<ShoppingItem?>(null) }
+    var renameDialogItem by remember { mutableStateOf<ShoppingItem?>(null) }
+    var renameText by rememberSaveable { mutableStateOf("") }
 
     var showProgress by remember { mutableStateOf(false) }
     LaunchedEffect(isLoading) {
@@ -245,7 +247,10 @@ fun ShoppingListScreen(
                         },
                         onImageClick = { url -> fullImageUrl = url },
                         onRemoveImage = { shoppingListViewModel.removeImageFromItem(row) },
-                        onRename = { newName -> shoppingListViewModel.renameItem(row, newName) },
+                        onRenameClick = {
+                            renameDialogItem = row
+                            renameText = row.name
+                        },
                         onDelete = { shoppingListViewModel.deleteItem(row) },
                         onPriceClick = { priceDialogItem = row },
                         onClearPrice = { shoppingListViewModel.clearPrice(row) }
@@ -271,7 +276,10 @@ fun ShoppingListScreen(
                             },
                             onImageClick = { url -> fullImageUrl = url },
                             onRemoveImage = { shoppingListViewModel.removeImageFromItem(row) },
-                            onRename = { newName -> shoppingListViewModel.renameItem(row, newName) },
+                            onRenameClick = {
+                                renameDialogItem = row
+                                renameText = row.name
+                            },
                             onDelete = { shoppingListViewModel.deleteItem(row) },
                             onPriceClick = { priceDialogItem = row },
                             onClearPrice = { shoppingListViewModel.clearPrice(row) }
@@ -356,6 +364,25 @@ fun ShoppingListScreen(
             onDismiss = { priceDialogItem = null },
             onConfirm = { shoppingListViewModel.updatePrice(item, it) },
             onRemove = item.price?.let { { shoppingListViewModel.clearPrice(item) } }
+        )
+    }
+
+    renameDialogItem?.let { item ->
+        RenameItemDialog(
+            value = renameText,
+            onValueChange = { renameText = it },
+            onDismiss = {
+                renameDialogItem = null
+                renameText = ""
+            },
+            onConfirm = {
+                val trimmed = renameText.trim()
+                if (trimmed.isNotEmpty()) {
+                    shoppingListViewModel.renameItem(item, trimmed)
+                }
+                renameDialogItem = null
+                renameText = ""
+            }
         )
     }
 
@@ -607,15 +634,13 @@ private fun ShoppingListRow(
     onAddImageClick: () -> Unit,
     onImageClick: (String) -> Unit,
     onRemoveImage: () -> Unit,
-    onRename: (String) -> Unit,
+    onRenameClick: () -> Unit,
     onDelete: () -> Unit,
     onPriceClick: () -> Unit,
     onClearPrice: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var menuOpen by remember { mutableStateOf(false) }
-    var showRename by remember { mutableStateOf(false) }
-    var renameText by rememberSaveable(item.id) { mutableStateOf(item.name) }
     val hasImage = !item.imageUrl.isNullOrBlank()
     val hasPrice = item.price != null
     val quantity = max(1, item.quantity)
@@ -684,7 +709,7 @@ private fun ShoppingListRow(
                         DropdownMenuItem(
                             text = { Text("Renombrar") },
                             leadingIcon = { Icon(Icons.Filled.Edit, null) },
-                            onClick = { menuOpen = false; showRename = true }
+                            onClick = { menuOpen = false; onRenameClick() }
                         )
                         DropdownMenuItem(
                             text = { Text("Eliminar") },
@@ -919,21 +944,32 @@ private fun ShoppingListRow(
                     )
                 }
             }
+
+            if (hasPrice) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = buildString {
+                        append("Precio: ")
+                        append(currencyFormatter.format(item.price!!))
+                        totalPrice?.takeIf { quantity > 1 }?.let {
+                            append(" · Total ")
+                            append(currencyFormatter.format(it))
+                        }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                item.previousPrice?.takeIf { it != item.price }?.let { previous ->
+                    Text(
+                        text = "Anterior: ${currencyFormatter.format(previous)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
         }
     }
 
-    if (showRename) {
-        RenameItemDialog(
-            value = renameText,
-            onValueChange = { renameText = it },
-            onDismiss = { showRename = false },
-            onConfirm = {
-                val trimmed = renameText.trim()
-                if (trimmed.isNotEmpty()) onRename(trimmed)
-                showRename = false
-            }
-        )
-    }
 }
 
 @Composable
