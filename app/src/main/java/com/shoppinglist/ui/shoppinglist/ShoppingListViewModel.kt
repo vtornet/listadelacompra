@@ -9,9 +9,9 @@ import com.google.firebase.ktx.Firebase
 import com.shoppinglist.data.models.ShoppingItem
 import com.shoppinglist.data.models.ShoppingList
 import com.shoppinglist.data.repository.ShoppingListRepository
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
 import java.text.Normalizer
 import java.util.Locale
 
@@ -65,11 +65,11 @@ class ShoppingListViewModel : ViewModel() {
             if (uid.isBlank()) return@launch
             _loading.value = true
             try {
-                val listId = withTimeout(10_000) { repository.getOrCreateDefaultListId(uid, _email.value) }
+                val listId = repository.getOrCreateDefaultListId(uid, _email.value)
                 _currentListId.value = listId
                 repository.migrateMyItemsToList(uid, listId)
             } catch (e: Exception) {
-                _error.value = e.message ?: "No se pudo inicializar tu lista."
+                handleError(e, "No se pudo inicializar tu lista.")
             } finally { _loading.value = false }
         }
     }
@@ -83,8 +83,8 @@ class ShoppingListViewModel : ViewModel() {
         if (listId.isBlank()) return
         viewModelScope.launch {
             _loading.value = true
-            try { withTimeout(10_000) { repository.addMemberEmail(listId, email.trim()) } }
-            catch (e: Exception) { _error.value = e.message ?: "No se pudo invitar." }
+            try { repository.addMemberEmail(listId, email.trim()) }
+            catch (e: Exception) { handleError(e, "No se pudo invitar.") }
             finally { _loading.value = false }
         }
     }
@@ -99,7 +99,7 @@ class ShoppingListViewModel : ViewModel() {
                 _currentListId.value = newId
                 onCreated(newId)
             } catch (e: Exception) {
-                _error.value = e.message ?: "No se pudo crear la lista."
+                handleError(e, "No se pudo crear la lista.")
             } finally { _loading.value = false }
         }
     }
@@ -110,13 +110,13 @@ class ShoppingListViewModel : ViewModel() {
         viewModelScope.launch {
             _loading.value = true
             try { repository.renameList(id, newName) }
-            catch (e: Exception) { _error.value = e.message ?: "No se pudo renombrar la lista." }
+            catch (e: Exception) { handleError(e, "No se pudo renombrar la lista.") }
             finally { _loading.value = false }
         }
     }
 
     /** Ahora borra en cascada (items + lista). */
-    fun deleteList(listId: String) {
+    fun deleteListCascade(listId: String) {
         viewModelScope.launch {
             _loading.value = true
             try {
@@ -126,7 +126,7 @@ class ShoppingListViewModel : ViewModel() {
                     _currentListId.value = remaining
                 }
             } catch (e: Exception) {
-                _error.value = e.message ?: "No se pudo eliminar la lista."
+                handleError(e, "No se pudo eliminar la lista.")
             } finally { _loading.value = false }
         }
     }
@@ -197,7 +197,7 @@ class ShoppingListViewModel : ViewModel() {
                     repository.updateItem(existing.copy(quantity = existing.quantity + 1))
                 }
             } catch (e: Exception) {
-                _error.value = e.message
+                handleError(e, "No se pudo completar la operación.")
             } finally {
                 _duplicate.value = null
             }
@@ -215,7 +215,7 @@ class ShoppingListViewModel : ViewModel() {
                     repository.updateItem(it.copy(inShoppingList = false))
                 }
             } catch (e: Exception) {
-                _error.value = e.message ?: "No se pudieron marcar los artículos."
+                handleError(e, "No se pudieron marcar los artículos.")
             } finally {
                 _loading.value = false
             }
@@ -227,17 +227,15 @@ class ShoppingListViewModel : ViewModel() {
         viewModelScope.launch {
             _loading.value = true
             try {
-                withTimeout(10_000) {
-                    val newItem = ShoppingItem(
-                        name = name.trim(),
-                        inShoppingList = true,
-                        addedByUid = _uid.value,
-                        listId = listId
-                    )
-                    repository.addItemToList(listId, newItem)
-                }
+                val newItem = ShoppingItem(
+                    name = name.trim(),
+                    inShoppingList = true,
+                    addedByUid = _uid.value,
+                    listId = listId
+                )
+                repository.addItemToList(listId, newItem)
             } catch (e: Exception) {
-                _error.value = e.message ?: "No se pudo añadir el artículo."
+                handleError(e, "No se pudo añadir el artículo.")
             } finally { _loading.value = false }
         }
     }
@@ -247,7 +245,7 @@ class ShoppingListViewModel : ViewModel() {
         viewModelScope.launch {
             _loading.value = true
             try {
-                val info = withTimeout(8_000) { repository.resolveBarcodeInfo(barcode) }
+                val info = repository.resolveBarcodeInfo(barcode)
                 val finalName = (info?.name ?: barcode).trim()
                 if (existsByName(finalName)) {
                     _duplicate.value = DuplicatePrompt(finalName) { actuallyAddScanned(finalName, info?.imageUrl, listId) }
@@ -255,7 +253,7 @@ class ShoppingListViewModel : ViewModel() {
                     actuallyAddScanned(finalName, info?.imageUrl, listId)
                 }
             } catch (e: Exception) {
-                _error.value = e.message ?: "No se pudo añadir el artículo desde código."
+                handleError(e, "No se pudo añadir el artículo desde código.")
             } finally { _loading.value = false }
         }
     }
@@ -263,18 +261,16 @@ class ShoppingListViewModel : ViewModel() {
     private fun actuallyAddScanned(name: String, imageUrl: String?, listId: String) {
         viewModelScope.launch {
             try {
-                withTimeout(10_000) {
-                    val newItem = ShoppingItem(
-                        name = name,
-                        inShoppingList = true,
-                        addedByUid = _uid.value,
-                        imageUrl = imageUrl,
-                        listId = listId
-                    )
-                    repository.addItemToList(listId, newItem)
-                }
+                val newItem = ShoppingItem(
+                    name = name,
+                    inShoppingList = true,
+                    addedByUid = _uid.value,
+                    imageUrl = imageUrl,
+                    listId = listId
+                )
+                repository.addItemToList(listId, newItem)
             } catch (e: Exception) {
-                _error.value = e.message ?: "No se pudo añadir el artículo."
+                handleError(e, "No se pudo añadir el artículo.")
             }
         }
     }
@@ -282,8 +278,8 @@ class ShoppingListViewModel : ViewModel() {
     fun toggleItemStatus(item: ShoppingItem) {
         viewModelScope.launch {
             _loading.value = true
-            try { withTimeout(10_000) { repository.updateItem(item.copy(inShoppingList = !item.inShoppingList)) } }
-            catch (e: Exception) { _error.value = e.message ?: "No se pudo actualizar el estado." }
+            try { repository.updateItem(item.copy(inShoppingList = !item.inShoppingList)) }
+            catch (e: Exception) { handleError(e, "No se pudo actualizar el estado.") }
             finally { _loading.value = false }
         }
     }
@@ -292,10 +288,10 @@ class ShoppingListViewModel : ViewModel() {
         viewModelScope.launch {
             _loading.value = true
             try {
-                val imageUrl = withTimeout(30_000) { repository.uploadImage(imageUri) }
-                withTimeout(10_000) { repository.updateItem(item.copy(imageUrl = imageUrl)) }
+                val imageUrl = repository.uploadImage(imageUri)
+                repository.updateItem(item.copy(imageUrl = imageUrl))
             } catch (e: Exception) {
-                _error.value = e.message ?: "No se pudo subir la imagen."
+                handleError(e, "No se pudo subir la imagen.")
             } finally { _loading.value = false }
         }
     }
@@ -305,10 +301,10 @@ class ShoppingListViewModel : ViewModel() {
         viewModelScope.launch {
             _loading.value = true
             try {
-                withTimeout(20_000) { repository.deleteImageByUrl(url) }
-                withTimeout(10_000) { repository.updateItem(item.copy(imageUrl = null)) }
+                repository.deleteImageByUrl(url)
+                repository.updateItem(item.copy(imageUrl = null))
             } catch (e: Exception) {
-                _error.value = e.message ?: "No se pudo eliminar la imagen."
+                handleError(e, "No se pudo eliminar la imagen.")
             } finally { _loading.value = false }
         }
     }
@@ -325,8 +321,8 @@ class ShoppingListViewModel : ViewModel() {
     private fun actuallyRename(item: ShoppingItem, newName: String) {
         viewModelScope.launch {
             _loading.value = true
-            try { withTimeout(10_000) { repository.updateItem(item.copy(name = newName.trim())) } }
-            catch (e: Exception) { _error.value = e.message ?: "No se pudo renombrar el artículo." }
+            try { repository.updateItem(item.copy(name = newName.trim())) }
+            catch (e: Exception) { handleError(e, "No se pudo renombrar el artículo.") }
             finally { _loading.value = false }
         }
     }
@@ -335,10 +331,10 @@ class ShoppingListViewModel : ViewModel() {
         viewModelScope.launch {
             _loading.value = true
             try {
-                item.imageUrl?.let { withTimeout(15_000) { repository.deleteImageByUrl(it) } }
-                withTimeout(10_000) { repository.deleteItem(item.id) }
+                item.imageUrl?.let { repository.deleteImageByUrl(it) }
+                repository.deleteItem(item.id)
             } catch (e: Exception) {
-                _error.value = e.message ?: "No se pudo eliminar el artículo."
+                handleError(e, "No se pudo eliminar el artículo.")
             } finally { _loading.value = false }
         }
     }
@@ -346,9 +342,31 @@ class ShoppingListViewModel : ViewModel() {
     fun updatePrice(item: ShoppingItem, newPrice: Double) {
         viewModelScope.launch {
             _loading.value = true
-            try { withTimeout(10_000) { repository.updateItem(item.copy(previousPrice = item.price, price = newPrice)) } }
-            catch (e: Exception) { _error.value = e.message ?: "No se pudo actualizar el precio." }
+            try { repository.updateItem(item.copy(previousPrice = item.price, price = newPrice)) }
+            catch (e: Exception) { handleError(e, "No se pudo actualizar el precio.") }
             finally { _loading.value = false }
         }
+    }
+
+    fun clearPrice(item: ShoppingItem) {
+        viewModelScope.launch {
+            _loading.value = true
+            try {
+                repository.updateItem(item.copy(previousPrice = item.price, price = null))
+            } catch (e: Exception) {
+                handleError(e, "No se pudo limpiar el precio.")
+            } finally {
+                _loading.value = false
+            }
+        }
+    }
+
+    private fun handleError(e: Exception, fallback: String) {
+        val message = if (e is TimeoutCancellationException) {
+            "La conexión está tardando más de lo esperado. Comprueba tu red e inténtalo de nuevo."
+        } else {
+            e.message ?: fallback
+        }
+        _error.value = message
     }
 }
