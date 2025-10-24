@@ -9,43 +9,59 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Divider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.SubcomposeAsyncImage
 import com.shoppinglist.data.models.ShoppingItem
 import com.shoppinglist.ui.auth.AuthViewModel
 import kotlinx.coroutines.delay
+import java.text.NumberFormat
 import java.util.Locale
+import kotlin.math.max
 
 @Composable
 fun ShoppingListScreen(
@@ -77,6 +93,21 @@ fun ShoppingListScreen(
 
     var itemForImage by remember { mutableStateOf<ShoppingItem?>(null) }
     var fullImageUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    var priceDialogItem by remember { mutableStateOf<ShoppingItem?>(null) }
+    var renameDialogItem by remember { mutableStateOf<ShoppingItem?>(null) }
+    var renameText by rememberSaveable { mutableStateOf("") }
+
+    LaunchedEffect(renameDialogItem?.id) {
+        renameText = renameDialogItem?.name ?: ""
+    }
+
+    LaunchedEffect(renameDialogItem, allItems) {
+        val activeId = renameDialogItem?.id ?: return@LaunchedEffect
+        if (allItems.none { it.id == activeId }) {
+            renameDialogItem = null
+            renameText = ""
+        }
+    }
 
     var showProgress by remember { mutableStateOf(false) }
     LaunchedEffect(isLoading) {
@@ -107,6 +138,17 @@ fun ShoppingListScreen(
     val (toBuy, purchased) = remember(filteredSorted) {
         filteredSorted.partition { it.inShoppingList }
     }
+
+    val currencyFormatter = remember { NumberFormat.getCurrencyInstance() }
+    val currencySymbol = remember(currencyFormatter) {
+        runCatching { currencyFormatter.currency?.getSymbol(Locale.getDefault()) }
+            .getOrNull() ?: "€"
+    }
+    val totalPurchasedAmount = remember(purchased) {
+        purchased.sumOf { (it.price ?: 0.0) * max(1, it.quantity) }
+    }
+    val pendingCount = remember(toBuy) { toBuy.sumOf { max(1, it.quantity) } }
+    val purchasedCount = remember(purchased) { purchased.sumOf { max(1, it.quantity) } }
 
     Scaffold(
         topBar = {
@@ -144,7 +186,7 @@ fun ShoppingListScreen(
         Column(
             Modifier
                 .padding(padding)
-                .padding(8.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
                 .fillMaxSize()
         ) {
             if (showProgress) {
@@ -153,35 +195,54 @@ fun ShoppingListScreen(
             }
 
             // Buscador + switch
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ShoppingListSearchBar(
                     value = query,
                     onValueChange = { query = it },
-                    singleLine = true,
-                    label = { Text("Buscar en la lista") },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    placeholder = "Buscar en la lista"
                 )
-                Spacer(Modifier.width(8.dp))
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     Text("Ver comprados", style = MaterialTheme.typography.labelSmall)
                     Switch(checked = showPurchased, onCheckedChange = { showPurchased = it })
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
 
             AddItemRow(
                 onAddItem = { name -> shoppingListViewModel.addItem(name) },
                 onScan = { showScanner = true }
             )
 
+            Spacer(Modifier.height(4.dp))
+
+            ShoppingListSummaryCard(
+                toBuyCount = pendingCount,
+                purchasedCount = purchasedCount,
+                totalPurchased = totalPurchasedAmount,
+                currencyFormatter = currencyFormatter
+            )
+
             Spacer(Modifier.height(8.dp))
-            LazyColumn(Modifier.fillMaxSize()) {
-                item { ListHeader("POR COMPRAR", Color(0xFFB00020)) }
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                item { ShoppingListSectionHeader("POR COMPRAR", Color(0xFFB00020)) }
 
                 items(toBuy, key = { it.id }) { row ->
                     ShoppingListRow(
                         item = row,
+                        currencyFormatter = currencyFormatter,
                         onToggleStatus = { shoppingListViewModel.toggleItemStatus(row) },
                         onIncQty = { shoppingListViewModel.incrementQuantity(row) },
                         onDecQty = { shoppingListViewModel.decrementQuantity(row) },
@@ -193,18 +254,24 @@ fun ShoppingListScreen(
                         },
                         onImageClick = { url -> fullImageUrl = url },
                         onRemoveImage = { shoppingListViewModel.removeImageFromItem(row) },
-                        onRename = { newName -> shoppingListViewModel.renameItem(row, newName) },
-                        onDelete = { shoppingListViewModel.deleteItem(row) }
+                        onRenameClick = {
+                            renameDialogItem = row
+                            renameText = row.name
+                        },
+                        onDelete = { shoppingListViewModel.deleteItem(row) },
+                        onPriceClick = { priceDialogItem = row },
+                        onClearPrice = { shoppingListViewModel.clearPrice(row) }
                     )
                 }
 
                 if (showPurchased) {
                     item { Spacer(Modifier.height(16.dp)) }
-                    item { ListHeader("COMPRADO", Color(0xFF008000)) }
+                    item { ShoppingListSectionHeader("COMPRADO", Color(0xFF008000)) }
 
                     items(purchased, key = { it.id }) { row ->
                         ShoppingListRow(
                             item = row,
+                            currencyFormatter = currencyFormatter,
                             onToggleStatus = { shoppingListViewModel.toggleItemStatus(row) },
                             onIncQty = { shoppingListViewModel.incrementQuantity(row) },
                             onDecQty = { shoppingListViewModel.decrementQuantity(row) },
@@ -216,8 +283,13 @@ fun ShoppingListScreen(
                             },
                             onImageClick = { url -> fullImageUrl = url },
                             onRemoveImage = { shoppingListViewModel.removeImageFromItem(row) },
-                            onRename = { newName -> shoppingListViewModel.renameItem(row, newName) },
-                            onDelete = { shoppingListViewModel.deleteItem(row) }
+                            onRenameClick = {
+                                renameDialogItem = row
+                                renameText = row.name
+                            },
+                            onDelete = { shoppingListViewModel.deleteItem(row) },
+                            onPriceClick = { priceDialogItem = row },
+                            onClearPrice = { shoppingListViewModel.clearPrice(row) }
                         )
                     }
                 }
@@ -290,8 +362,38 @@ fun ShoppingListScreen(
         FullscreenImageDialog(imageUrl = url, onDismiss = { fullImageUrl = null })
     }
 
+    priceDialogItem?.let { item ->
+        PriceDialog(
+            itemName = item.name,
+            initialPrice = item.price,
+            currencySymbol = currencySymbol,
+            onDismiss = { priceDialogItem = null },
+            onConfirm = { shoppingListViewModel.updatePrice(item, it) },
+            onRemove = item.price?.let { { shoppingListViewModel.clearPrice(item) } }
+        )
+    }
+
+    renameDialogItem?.let { item ->
+        RenameItemDialog(
+            value = renameText,
+            onValueChange = { renameText = it },
+            onDismiss = {
+                renameDialogItem = null
+                renameText = ""
+            },
+            onConfirm = {
+                val trimmed = renameText.trim()
+                if (trimmed.isNotEmpty()) {
+                    shoppingListViewModel.renameItem(item, trimmed)
+                }
+                renameDialogItem = null
+                renameText = ""
+            }
+        )
+    }
+
     // Confirmación "marcar todo"
-        if (confirmMarkAll) {
+    if (confirmMarkAll) {
         AlertDialog(
             onDismissRequest = { confirmMarkAll = false },
             title = { Text("Marcar todo como comprado") },
@@ -304,267 +406,5 @@ fun ShoppingListScreen(
             },
             dismissButton = { TextButton(onClick = { confirmMarkAll = false }) { Text("Cancelar") } }
         )
-    }
-}
-@Composable
-private fun AddItemRow(
-    onAddItem: (String) -> Unit,
-    onScan: () -> Unit
-) {
-    var text by rememberSaveable { mutableStateOf("") }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(
-            value = text,
-            onValueChange = { text = it },
-            singleLine = true,
-            label = { Text("Nuevo artículo") },
-            modifier = Modifier.weight(1f)
-        )
-        Spacer(Modifier.width(8.dp))
-        FilledTonalButton(
-            enabled = text.isNotBlank(),
-            onClick = { onAddItem(text.trim()); text = "" }
-        ) { Text("Añadir") }
-        Spacer(Modifier.width(8.dp))
-        FilledTonalButton(onClick = onScan) { Text("Escanear") }
-    }
-}
-
-@Composable private fun ListHeader(title: String, color: Color) {
-    Text(title, style = MaterialTheme.typography.titleMedium, color = color,
-        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
-    Divider()
-}
-
-@Composable
-private fun ShoppingListRow(
-    item: ShoppingItem,
-    onToggleStatus: () -> Unit,
-    onIncQty: () -> Unit,
-    onDecQty: () -> Unit,
-    onAddImageClick: () -> Unit,
-    onImageClick: (String) -> Unit,
-    onRemoveImage: () -> Unit,
-    onRename: (String) -> Unit,
-    onDelete: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var menuOpen by remember { mutableStateOf(false) }
-    var showRename by remember { mutableStateOf(false) }
-    var renameText by rememberSaveable(item.id) { mutableStateOf(item.name) }
-    val hasImage = !item.imageUrl.isNullOrBlank()
-
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Checkbox(
-            checked = !item.inShoppingList,
-            onCheckedChange = { onToggleStatus() }
-        )
-
-        SubcomposeAsyncImage(
-            model = item.imageUrl,
-            contentDescription = item.name,
-            loading = { CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp) },
-            error = {},
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .padding(start = 8.dp, end = 12.dp)
-                .size(40.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .clickable(
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() }
-                ) {
-                    if (hasImage) onImageClick(item.imageUrl!!) else onAddImageClick()
-                }
-        )
-
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = item.name,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.height(4.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                IconButton(
-                    onClick = onDecQty,
-                    enabled = (item.quantity ?: 1) > 1
-                ) { Icon(Icons.Filled.Remove, contentDescription = "Restar") }
-
-                Text("x${item.quantity ?: 1}", style = MaterialTheme.typography.bodyMedium)
-
-                IconButton(onClick = onIncQty) {
-                    Icon(Icons.Filled.Add, contentDescription = "Sumar")
-                }
-
-                Spacer(Modifier.weight(1f))
-
-                Box {
-                    IconButton(onClick = { menuOpen = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "Más opciones")
-                    }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text(if (hasImage) "Ver foto" else "Añadir foto") },
-                            leadingIcon = { Icon(Icons.Filled.AddAPhoto, null) },
-                            onClick = {
-                                menuOpen = false
-                                if (hasImage) onImageClick(item.imageUrl!!) else onAddImageClick()
-                            }
-                        )
-                        if (hasImage) {
-                            DropdownMenuItem(
-                                text = { Text("Quitar foto") },
-                                onClick = { menuOpen = false; onRemoveImage() }
-                            )
-                        }
-                        DropdownMenuItem(
-                            text = { Text("Renombrar") },
-                            leadingIcon = { Icon(Icons.Filled.Edit, null) },
-                            onClick = { menuOpen = false; showRename = true }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Eliminar") },
-                            leadingIcon = { Icon(Icons.Filled.Delete, null) },
-                            onClick = { menuOpen = false; onDelete() }
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    if (showRename) {
-        AlertDialog(
-            onDismissRequest = { showRename = false },
-            title = { Text("Renombrar artículo") },
-            text = {
-                OutlinedTextField(
-                    value = renameText,
-                    onValueChange = { renameText = it },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val txt = renameText.trim()
-                    if (txt.isNotEmpty()) onRename(txt)
-                    showRename = false
-                }) { Text("Guardar") }
-            },
-            dismissButton = { TextButton(onClick = { showRename = false }) { Text("Cancelar") } }
-        )
-    }
-}
-@Composable
-private fun FullscreenImageDialog(
-    imageUrl: String,
-    onDismiss: () -> Unit
-) {
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-        ) {
-            SubcomposeAsyncImage(
-                model = imageUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.Center)
-            )
-
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(16.dp)
-                    .background(Color.Black.copy(alpha = 0.35f), CircleShape)
-            ) {
-                Icon(Icons.Filled.Close, contentDescription = "Cerrar", tint = Color.White)
-            }
-        }
-    }
-}
-
-@Composable
-private fun BarcodeScannerDialog(
-    onResult: (String) -> Unit,
-    onClose: () -> Unit
-) {
-    var manual by remember { mutableStateOf("") }
-
-    Dialog(
-        onDismissRequest = onClose,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Surface(color = Color.Black.copy(alpha = 0.88f)) {
-            Box(Modifier.fillMaxSize()) {
-
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(24.dp)
-                        .fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "Escanear código de barras",
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleMedium
-                    )
-
-                    Spacer(Modifier.height(12.dp))
-
-                    OutlinedTextField(
-                        value = manual,
-                        onValueChange = { manual = it },
-                        singleLine = true,
-                        label = { Text("Pegar/introducir código") },
-                        modifier = Modifier.fillMaxWidth(0.9f)
-                    )
-
-                    Spacer(Modifier.height(12.dp))
-
-                    Row {
-                        TextButton(onClick = onClose) { Text("Cancelar") }
-                        Spacer(Modifier.width(8.dp))
-                        FilledTonalButton(
-                            enabled = manual.isNotBlank(),
-                            onClick = {
-                                onResult(manual.trim())
-                                onClose()
-                            }
-                        ) { Text("Aceptar") }
-                    }
-                }
-
-                IconButton(
-                    onClick = onClose,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(16.dp)
-                        .background(Color.Black.copy(alpha = 0.35f), CircleShape)
-                ) {
-                    Icon(Icons.Filled.Close, contentDescription = "Cerrar", tint = Color.White)
-                }
-            }
-        }
     }
 }
