@@ -12,7 +12,6 @@ import com.shoppinglist.data.repository.ShoppingListRepository
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
 import java.text.Normalizer
 import java.util.Locale
 
@@ -73,7 +72,7 @@ class ShoppingListViewModel : ViewModel() {
             if (uid.isBlank()) return@launch
             _loading.value = true
             try {
-                val listId = runRepoCall { repository.getOrCreateDefaultListId(uid, _email.value) }
+                val listId = repository.getOrCreateDefaultListId(uid, _email.value)
                 _currentListId.value = listId
                 repository.migrateMyItemsToList(uid, listId)
             } catch (e: Exception) {
@@ -91,7 +90,7 @@ class ShoppingListViewModel : ViewModel() {
         if (listId.isBlank()) return
         viewModelScope.launch {
             _loading.value = true
-            try { runRepoCall { repository.addMemberEmail(listId, email.trim()) } }
+            try { repository.addMemberEmail(listId, email.trim()) }
             catch (e: Exception) { handleError(e, "No se pudo invitar.") }
             finally { _loading.value = false }
         }
@@ -235,15 +234,13 @@ class ShoppingListViewModel : ViewModel() {
         viewModelScope.launch {
             _loading.value = true
             try {
-                runRepoCall {
-                    val newItem = ShoppingItem(
-                        name = name.trim(),
-                        inShoppingList = true,
-                        addedByUid = _uid.value,
-                        listId = listId
-                    )
-                    repository.addItemToList(listId, newItem)
-                }
+                val newItem = ShoppingItem(
+                    name = name.trim(),
+                    inShoppingList = true,
+                    addedByUid = _uid.value,
+                    listId = listId
+                )
+                repository.addItemToList(listId, newItem)
             } catch (e: Exception) {
                 handleError(e, "No se pudo añadir el artículo.")
             } finally { _loading.value = false }
@@ -255,7 +252,7 @@ class ShoppingListViewModel : ViewModel() {
         viewModelScope.launch {
             _loading.value = true
             try {
-                val info = runRepoCall(timeout = BARCODE_TIMEOUT_MS) { repository.resolveBarcodeInfo(barcode) }
+                val info = repository.resolveBarcodeInfo(barcode)
                 val finalName = (info?.name ?: barcode).trim()
                 if (existsByName(finalName)) {
                     _duplicate.value = DuplicatePrompt(finalName) { actuallyAddScanned(finalName, info?.imageUrl, listId) }
@@ -271,16 +268,14 @@ class ShoppingListViewModel : ViewModel() {
     private fun actuallyAddScanned(name: String, imageUrl: String?, listId: String) {
         viewModelScope.launch {
             try {
-                runRepoCall {
-                    val newItem = ShoppingItem(
-                        name = name,
-                        inShoppingList = true,
-                        addedByUid = _uid.value,
-                        imageUrl = imageUrl,
-                        listId = listId
-                    )
-                    repository.addItemToList(listId, newItem)
-                }
+                val newItem = ShoppingItem(
+                    name = name,
+                    inShoppingList = true,
+                    addedByUid = _uid.value,
+                    imageUrl = imageUrl,
+                    listId = listId
+                )
+                repository.addItemToList(listId, newItem)
             } catch (e: Exception) {
                 handleError(e, "No se pudo añadir el artículo.")
             }
@@ -290,7 +285,7 @@ class ShoppingListViewModel : ViewModel() {
     fun toggleItemStatus(item: ShoppingItem) {
         viewModelScope.launch {
             _loading.value = true
-            try { runRepoCall { repository.updateItem(item.copy(inShoppingList = !item.inShoppingList)) } }
+            try { repository.updateItem(item.copy(inShoppingList = !item.inShoppingList)) }
             catch (e: Exception) { handleError(e, "No se pudo actualizar el estado.") }
             finally { _loading.value = false }
         }
@@ -300,8 +295,8 @@ class ShoppingListViewModel : ViewModel() {
         viewModelScope.launch {
             _loading.value = true
             try {
-                val imageUrl = runRepoCall(timeout = IMAGE_UPLOAD_TIMEOUT_MS) { repository.uploadImage(imageUri) }
-                runRepoCall { repository.updateItem(item.copy(imageUrl = imageUrl)) }
+                val imageUrl = repository.uploadImage(imageUri)
+                repository.updateItem(item.copy(imageUrl = imageUrl))
             } catch (e: Exception) {
                 handleError(e, "No se pudo subir la imagen.")
             } finally { _loading.value = false }
@@ -313,8 +308,8 @@ class ShoppingListViewModel : ViewModel() {
         viewModelScope.launch {
             _loading.value = true
             try {
-                runRepoCall(timeout = IMAGE_DELETE_TIMEOUT_MS) { repository.deleteImageByUrl(url) }
-                runRepoCall { repository.updateItem(item.copy(imageUrl = null)) }
+                repository.deleteImageByUrl(url)
+                repository.updateItem(item.copy(imageUrl = null))
             } catch (e: Exception) {
                 handleError(e, "No se pudo eliminar la imagen.")
             } finally { _loading.value = false }
@@ -333,7 +328,7 @@ class ShoppingListViewModel : ViewModel() {
     private fun actuallyRename(item: ShoppingItem, newName: String) {
         viewModelScope.launch {
             _loading.value = true
-            try { runRepoCall { repository.updateItem(item.copy(name = newName.trim())) } }
+            try { repository.updateItem(item.copy(name = newName.trim())) }
             catch (e: Exception) { handleError(e, "No se pudo renombrar el artículo.") }
             finally { _loading.value = false }
         }
@@ -343,8 +338,8 @@ class ShoppingListViewModel : ViewModel() {
         viewModelScope.launch {
             _loading.value = true
             try {
-                item.imageUrl?.let { runRepoCall(timeout = IMAGE_DELETE_TIMEOUT_MS) { repository.deleteImageByUrl(it) } }
-                runRepoCall { repository.deleteItem(item.id) }
+                item.imageUrl?.let { repository.deleteImageByUrl(it) }
+                repository.deleteItem(item.id)
             } catch (e: Exception) {
                 handleError(e, "No se pudo eliminar el artículo.")
             } finally { _loading.value = false }
@@ -354,7 +349,7 @@ class ShoppingListViewModel : ViewModel() {
     fun updatePrice(item: ShoppingItem, newPrice: Double) {
         viewModelScope.launch {
             _loading.value = true
-            try { runRepoCall { repository.updateItem(item.copy(previousPrice = item.price, price = newPrice)) } }
+            try { repository.updateItem(item.copy(previousPrice = item.price, price = newPrice)) }
             catch (e: Exception) { handleError(e, "No se pudo actualizar el precio.") }
             finally { _loading.value = false }
         }
@@ -364,9 +359,7 @@ class ShoppingListViewModel : ViewModel() {
         viewModelScope.launch {
             _loading.value = true
             try {
-                runRepoCall {
-                    repository.updateItem(item.copy(previousPrice = item.price, price = null))
-                }
+                repository.updateItem(item.copy(previousPrice = item.price, price = null))
             } catch (e: Exception) {
                 handleError(e, "No se pudo limpiar el precio.")
             } finally {
@@ -374,11 +367,6 @@ class ShoppingListViewModel : ViewModel() {
             }
         }
     }
-
-    private suspend fun <T> runRepoCall(
-        timeout: Long = DEFAULT_TIMEOUT_MS,
-        block: suspend () -> T
-    ): T = withTimeout(timeout) { block() }
 
     private fun handleError(e: Exception, fallback: String) {
         val message = if (e is TimeoutCancellationException) {
