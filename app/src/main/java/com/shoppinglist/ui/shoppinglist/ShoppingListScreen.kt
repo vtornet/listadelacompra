@@ -102,6 +102,18 @@ fun ShoppingListScreen(
     var renameDialogItem by remember { mutableStateOf<ShoppingItem?>(null) }
     var renameText by rememberSaveable { mutableStateOf("") }
 
+    LaunchedEffect(renameDialogItem?.id) {
+        renameText = renameDialogItem?.name ?: ""
+    }
+
+    LaunchedEffect(renameDialogItem, allItems) {
+        val activeId = renameDialogItem?.id ?: return@LaunchedEffect
+        if (allItems.none { it.id == activeId }) {
+            renameDialogItem = null
+            renameText = ""
+        }
+    }
+
     var showProgress by remember { mutableStateOf(false) }
     LaunchedEffect(isLoading) {
         if (isLoading) { delay(300); showProgress = shoppingListViewModel.loading.value }
@@ -402,6 +414,7 @@ fun ShoppingListScreen(
         )
     }
 }
+
 @Composable
 private fun AddItemRow(
     onAddItem: (String) -> Unit,
@@ -851,6 +864,29 @@ private fun ShoppingListRow(
                         containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                     )
                 )
+            }
+
+            if (hasPrice) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = buildString {
+                        append("Precio: ")
+                        append(currencyFormatter.format(item.price!!))
+                        totalPrice?.takeIf { quantity > 1 }?.let {
+                            append(" · Total ")
+                            append(currencyFormatter.format(it))
+                        }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                item.previousPrice?.takeIf { it != item.price }?.let { previous ->
+                    Text(
+                        text = "Anterior: ${currencyFormatter.format(previous)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
             }
 
             if (hasPrice) {
