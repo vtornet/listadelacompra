@@ -648,44 +648,18 @@ private fun ShoppingListRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(18.dp)
     ) {
-        Checkbox(
-            checked = !item.inShoppingList,
-            onCheckedChange = { onToggleStatus() }
-        )
-
-        SubcomposeAsyncImage(
-            model = item.imageUrl,
-            contentDescription = item.name,
-            loading = { CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp) },
-            error = {},
-            contentScale = ContentScale.Crop,
+        Column(
             modifier = Modifier
-                .padding(start = 8.dp, end = 12.dp)
-                .size(40.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .clickable(
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() }
-                ) {
-                    if (hasImage) onImageClick(item.imageUrl!!) else onAddImageClick()
-                }
-        )
-
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = item.name,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.height(4.dp))
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
                     onClick = onDecQty,
@@ -694,11 +668,13 @@ private fun ShoppingListRow(
 
                 Text("x$quantity", style = MaterialTheme.typography.bodyMedium)
 
-                IconButton(onClick = onIncQty) {
-                    Icon(Icons.Filled.Add, contentDescription = "Sumar")
-                }
+                        Text("x$quantity", style = MaterialTheme.typography.bodyMedium)
 
-                Spacer(Modifier.weight(1f))
+                        IconButton(onClick = onIncQty) {
+                            Icon(Icons.Filled.Add, contentDescription = "Sumar")
+                        }
+                    }
+                }
 
                 Box {
                     IconButton(onClick = { menuOpen = true }) {
@@ -740,7 +716,232 @@ private fun ShoppingListRow(
                             leadingIcon = { Icon(Icons.Filled.Delete, null) },
                             onClick = { menuOpen = false; onDelete() }
                         )
+                        if (hasPrice) {
+                            DropdownMenuItem(
+                                text = { Text("Quitar precio") },
+                                onClick = { menuOpen = false; onClearPrice() }
+                            )
+                        }
                     }
+                }
+
+                AssistChip(
+                    onClick = onPriceClick,
+                    label = { Text(if (hasPrice) "Actualizar precio" else "Añadir precio") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.AttachMoney,
+                            contentDescription = null
+                        )
+                    },
+                    modifier = Modifier.padding(start = 12.dp),
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    )
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (hasPrice) {
+                        Text("Precio unitario", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            currencyFormatter.format(item.price!!),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        totalPrice?.let {
+                            Text(
+                                "Total (${quantity} uds): ${currencyFormatter.format(it)}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        val previous = item.previousPrice
+                        if (previous != null && previous != item.price) {
+                            Text(
+                                "Anterior: ${currencyFormatter.format(previous)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "Añade un precio para controlar el gasto",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
+
+                AssistChip(
+                    onClick = onPriceClick,
+                    label = { Text(if (hasPrice) "Actualizar precio" else "Añadir precio") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.AttachMoney,
+                            contentDescription = null
+                        )
+                    },
+                    modifier = Modifier.padding(start = 12.dp),
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    )
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (hasPrice) {
+                        Text("Precio unitario", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            currencyFormatter.format(item.price!!),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        totalPrice?.let {
+                            Text(
+                                "Total (${quantity} uds): ${currencyFormatter.format(it)}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        val previous = item.previousPrice
+                        if (previous != null && previous != item.price) {
+                            Text(
+                                "Anterior: ${currencyFormatter.format(previous)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "Añade un precio para controlar el gasto",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
+
+                AssistChip(
+                    onClick = onPriceClick,
+                    label = { Text(if (hasPrice) "Actualizar precio" else "Añadir precio") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.AttachMoney,
+                            contentDescription = null
+                        )
+                    },
+                    modifier = Modifier.padding(start = 12.dp),
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    )
+                )
+            }
+
+            if (hasPrice) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = buildString {
+                        append("Precio: ")
+                        append(currencyFormatter.format(item.price!!))
+                        totalPrice?.takeIf { quantity > 1 }?.let {
+                            append(" · Total ")
+                            append(currencyFormatter.format(it))
+                        }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                item.previousPrice?.takeIf { it != item.price }?.let { previous ->
+                    Text(
+                        text = "Anterior: ${currencyFormatter.format(previous)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+
+            if (hasPrice) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = buildString {
+                        append("Precio: ")
+                        append(currencyFormatter.format(item.price!!))
+                        totalPrice?.takeIf { quantity > 1 }?.let {
+                            append(" · Total ")
+                            append(currencyFormatter.format(it))
+                        }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                item.previousPrice?.takeIf { it != item.price }?.let { previous ->
+                    Text(
+                        text = "Anterior: ${currencyFormatter.format(previous)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+
+            if (hasPrice) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = buildString {
+                        append("Precio: ")
+                        append(currencyFormatter.format(item.price!!))
+                        totalPrice?.takeIf { quantity > 1 }?.let {
+                            append(" · Total ")
+                            append(currencyFormatter.format(it))
+                        }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                item.previousPrice?.takeIf { it != item.price }?.let { previous ->
+                    Text(
+                        text = "Anterior: ${currencyFormatter.format(previous)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+
+            if (hasPrice) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = buildString {
+                        append("Precio: ")
+                        append(currencyFormatter.format(item.price!!))
+                        totalPrice?.takeIf { quantity > 1 }?.let {
+                            append(" · Total ")
+                            append(currencyFormatter.format(it))
+                        }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                item.previousPrice?.takeIf { it != item.price }?.let { previous ->
+                    Text(
+                        text = "Anterior: ${currencyFormatter.format(previous)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
                 }
             }
 
