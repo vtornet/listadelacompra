@@ -116,7 +116,7 @@ class ShoppingListViewModel : ViewModel() {
     }
 
     /** Ahora borra en cascada (items + lista). */
-    fun deleteList(listId: String) {
+    fun deleteListCascade(listId: String) {
         viewModelScope.launch {
             _loading.value = true
             try {
@@ -349,6 +349,21 @@ class ShoppingListViewModel : ViewModel() {
             try { withTimeout(10_000) { repository.updateItem(item.copy(previousPrice = item.price, price = newPrice)) } }
             catch (e: Exception) { _error.value = e.message ?: "No se pudo actualizar el precio." }
             finally { _loading.value = false }
+        }
+    }
+
+    fun clearPrice(item: ShoppingItem) {
+        viewModelScope.launch {
+            _loading.value = true
+            try {
+                withTimeout(10_000) {
+                    repository.updateItem(item.copy(previousPrice = item.price, price = null))
+                }
+            } catch (e: Exception) {
+                _error.value = e.message ?: "No se pudo limpiar el precio."
+            } finally {
+                _loading.value = false
+            }
         }
     }
 }
