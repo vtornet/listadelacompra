@@ -17,6 +17,13 @@ import java.util.Locale
 
 class ShoppingListViewModel : ViewModel() {
 
+    private companion object {
+        const val DEFAULT_TIMEOUT_MS = 25_000L
+        const val BARCODE_TIMEOUT_MS = 12_000L
+        const val IMAGE_UPLOAD_TIMEOUT_MS = 45_000L
+        const val IMAGE_DELETE_TIMEOUT_MS = 25_000L
+    }
+
     private val repository = ShoppingListRepository()
     private val auth = Firebase.auth
 
