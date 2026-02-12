@@ -588,6 +588,13 @@ internal fun BarcodeScannerDialog(
     onClose: () -> Unit
 ) {
     var manual by remember { mutableStateOf("") }
+    var inputError by remember { mutableStateOf<String?>(null) }
+
+    // Valida que el código de barras tenga un formato válido (solo dígitos, 8-14 caracteres)
+    fun isValidBarcode(code: String): Boolean {
+        val digitsOnly = code.filter { it.isDigit() }
+        return digitsOnly.length in 8..14
+    }
 
     Dialog(
         onDismissRequest = onClose,
@@ -613,9 +620,14 @@ internal fun BarcodeScannerDialog(
 
                     OutlinedTextField(
                         value = manual,
-                        onValueChange = { manual = it },
+                        onValueChange = {
+                            manual = it
+                            inputError = null
+                        },
                         singleLine = true,
                         label = { Text("Pegar/introducir código") },
+                        isError = inputError != null,
+                        supportingText = inputError?.let { { Text(it, color = MaterialTheme.colorScheme.error) } },
                         modifier = Modifier.fillMaxWidth(0.9f)
                     )
 
@@ -627,8 +639,13 @@ internal fun BarcodeScannerDialog(
                         FilledTonalButton(
                             enabled = manual.isNotBlank(),
                             onClick = {
-                                onResult(manual.trim())
-                                onClose()
+                                val trimmed = manual.trim()
+                                if (isValidBarcode(trimmed)) {
+                                    onResult(trimmed)
+                                    onClose()
+                                } else {
+                                    inputError = "Código inválido: debe tener 8-14 dígitos"
+                                }
                             }
                         ) { Text("Aceptar") }
                     }

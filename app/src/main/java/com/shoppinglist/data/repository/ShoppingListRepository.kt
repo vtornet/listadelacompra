@@ -4,13 +4,16 @@ import android.net.Uri
 import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.ktx.Firebase
+import com.google.firebase.storage.ktx.storage
 import com.shoppinglist.data.models.ShoppingItem
 import com.shoppinglist.data.models.ShoppingList
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -25,14 +28,13 @@ import java.util.UUID
 class ShoppingListRepository {
 
     private val firestore = FirebaseFirestore.getInstance()
-    private val storage = FirebaseStorage.getInstance()
+    private val storage = Firebase.storage
 
     private val listsCol = firestore.collection("lists")
     private val itemsCol = firestore.collection("shoppingItems")
 
     /* ===================== LISTAS ===================== */
 
-    /** Observa en tiempo real todas las listas del usuario (propietario o invitado por email). */
     /** Observa en tiempo real todas las listas del usuario (propietario o invitado por email). */
     fun observeListsForUser(uid: String, email: String?): Flow<List<ShoppingList>> = callbackFlow {
         // Mantenemos dos mapas independientes y fusionamos en cada evento.
@@ -43,36 +45,34 @@ class ShoppingListRepository {
             val merged = LinkedHashMap<String, ShoppingList>()
             // Si una lista aparece en ambos, preferimos la de propietario.
             ownerMap.forEach { (k, v) -> merged[k] = v }
-            memberMap.forEach { (k, v) -> merged[k] = v }
+            memberMap.forEach { (k, v) -> merged[k] = merged[k] ?: v }
             trySend(merged.values.toList())
         }
 
         var regOwner: ListenerRegistration? = null
         var regMember: ListenerRegistration? = null
 
-        if (uid.isNotBlank()) {
-            regOwner = listsCol.whereEqualTo("ownerUid", uid)
-                .addSnapshotListener { snap, err ->
-                    if (err != null) {
-                        Log.w(TAG, "observeListsForUser(owner) error", err)
-                        return@addSnapshotListener
-                    }
-                    ownerMap.clear()
-                    if (snap != null) {
-                        for (d in snap.documents) {
-                            ownerMap[d.id] = ShoppingList(
-                                id = d.id,
-                                name = d.getString("name") ?: "",
-                                ownerUid = d.getString("ownerUid"),
-                                membersEmails = (d.get("membersEmails") as? List<*>)?.filterIsInstance<String>()
-                                    ?: emptyList()
-                            )
-                        }
-                    }
-                    sendMerged()
+        // Propietario
+        regOwner = listsCol.whereEqualTo("ownerUid", uid)
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    Log.w(TAG, "observeListsForUser(owner) error", err)
+                    return@addSnapshotListener
                 }
-        }
+                ownerMap.clear()
+                snap?.documents?.forEach { doc ->
+                    val data = doc.data ?: return@forEach
+                    ownerMap[doc.id] = ShoppingList(
+                        id = doc.id,
+                        name = data["name"] as? String ?: "",
+                        ownerUid = data["ownerUid"] as? String ?: "",
+                        membersEmails = (data["membersEmails"] as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+                    )
+                }
+                sendMerged()
+            }
 
+        // Miembro por email
         if (!email.isNullOrBlank()) {
             regMember = listsCol.whereArrayContains("membersEmails", email)
                 .addSnapshotListener { snap, err ->
@@ -81,16 +81,14 @@ class ShoppingListRepository {
                         return@addSnapshotListener
                     }
                     memberMap.clear()
-                    if (snap != null) {
-                        for (d in snap.documents) {
-                            memberMap[d.id] = ShoppingList(
-                                id = d.id,
-                                name = d.getString("name") ?: "",
-                                ownerUid = d.getString("ownerUid"),
-                                membersEmails = (d.get("membersEmails") as? List<*>)?.filterIsInstance<String>()
-                                    ?: emptyList()
-                            )
-                        }
+                    snap?.documents?.forEach { doc ->
+                        val data = doc.data ?: return@forEach
+                        memberMap[doc.id] = ShoppingList(
+                            id = doc.id,
+                            name = data["name"] as? String ?: "",
+                            ownerUid = data["ownerUid"] as? String ?: "",
+                            membersEmails = (data["membersEmails"] as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+                        )
                     }
                     sendMerged()
                 }
@@ -102,122 +100,121 @@ class ShoppingListRepository {
         }
     }
 
-    /** Crea una lista y devuelve su ID. (Escribe los campos que esperan las reglas) */
+    /** Crea lista, devuelve su id. */
     suspend fun createList(name: String, ownerUid: String): String {
-        val doc = listsCol.document()
+        val ref = listsCol.document()
         val data = hashMapOf(
-            "name" to name,
+            "name" to name.ifBlank { "Sin nombre" },
             "ownerUid" to ownerUid,
             "membersEmails" to emptyList<String>()
         )
-        doc.set(data).await()
-        return doc.id
+        ref.set(data).await()
+        return ref.id
     }
 
-    /** Renombra una lista. */
-    suspend fun renameList(listId: String, newName: String) {
-        listsCol.document(listId).update("name", newName).await()
+    /** Renombra lista. */
+    suspend fun renameList(id: String, newName: String) {
+        listsCol.document(id).update("name", newName.ifBlank { "Sin nombre" }).await()
     }
 
-    /**
-     * Elimina una lista + TODOS sus items + sus imágenes en Storage.
-     * Compatible con lotes de Firestore (500 por batch).
-     */
-    suspend fun deleteListDeep(listId: String) {
-        // 1) Recuperar items de la lista
-        val itemsSnap = itemsCol.whereEqualTo("listId", listId).get().await()
-        val docs = itemsSnap.documents
-
-        // 1.1) Borrar imágenes si las hay
-        for (d in docs) {
-            val url = d.getString("imageUrl")
-            if (!url.isNullOrBlank()) {
-                try { deleteImageByUrl(url) } catch (e: Exception) {
-                    Log.w(TAG, "delete image fail", e)
-                }
-            }
+    /** Elimina lista y (opcionalmente) sus items (borrado por reglas: permitido a miembros). */
+    suspend fun deleteListDeep(id: String) {
+        // Borrado de items en cliente (mejor usar funciones/Batch en backend si crece):
+        val items = itemsCol.whereEqualTo("listId", id).get().await()
+        for (doc in items.documents) {
+            doc.reference.delete().await()
         }
-
-        // 2) Borrar items por lotes de 500
-        var idx = 0
-        while (idx < docs.size) {
-            val batch = firestore.batch()
-            for (i in idx until kotlin.math.min(idx + 500, docs.size)) {
-                batch.delete(docs[i].reference)
-            }
-            batch.commit().await()
-            idx += 500
-        }
-
-        // 3) Borrar documento de lista
-        listsCol.document(listId).delete().await()
+        // Borrar lista al final
+        listsCol.document(id).delete().await()
     }
 
-    /** Devuelve/crea una lista "Mi lista" para el usuario al iniciar. */
-    suspend fun getOrCreateDefaultListId(uid: String, email: String?): String {
-        val existing = listsCol.whereEqualTo("ownerUid", uid).limit(1).get().await()
-        if (!existing.isEmpty) return existing.documents.first().id
-        return createList("Mi lista", uid)
-    }
-
-    /** Invitar miembro por email a una lista. */
+    /** Añade email a membersEmails si no existía ya. */
     suspend fun addMemberEmail(listId: String, email: String) {
         val ref = listsCol.document(listId)
         firestore.runTransaction { tx ->
             val snap = tx.get(ref)
             val current = (snap.get("membersEmails") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
-            if (!current.contains(email)) tx.update(ref, "membersEmails", current + email)
+            val target = email.trim()
+            if (current.any { it.equals(target, ignoreCase = true) }) return@runTransaction
+            tx.update(ref, "membersEmails", current + target)
         }.await()
     }
 
-    /* ===================== ITEMS ===================== */
+    /** Elimina email de membersEmails si existe. */
+    suspend fun removeMemberEmail(listId: String, email: String) {
+        val ref = listsCol.document(listId)
+        firestore.runTransaction { tx ->
+            val snap = tx.get(ref)
+            val current = (snap.get("membersEmails") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+            val target = email.trim()
+            val updated = current.filter { !it.equals(target, ignoreCase = true) }
+            if (updated.size != current.size) tx.update(ref, "membersEmails", updated)
+        }.await()
+    }
 
-    /** Items en tiempo real de una lista. */
-    fun getItemsForList(listId: String): Flow<List<ShoppingItem>> = callbackFlow {
-        val registration = itemsCol
-            .whereEqualTo("listId", listId)
+    /** Obtiene (o crea) id de la lista por defecto del usuario. */
+    suspend fun getOrCreateDefaultListId(uid: String, email: String?): String {
+        // 1) Propietaria
+        val owned = listsCol.whereEqualTo("ownerUid", uid).limit(1).get().await()
+        if (!owned.isEmpty) return owned.documents.first().id
+
+        // 2) Miembro por email
+        if (!email.isNullOrBlank()) {
+            val member = listsCol.whereArrayContains("membersEmails", email).limit(1).get().await()
+            if (!member.isEmpty) return member.documents.first().id
+        }
+
+        // 3) Crear una por defecto
+        return createList("Mi lista", uid)
+    }
+
+    /* ===================== ÍTEMS ===================== */
+
+    /** Observa items de una lista (ordenados por nombre). */
+    fun getItemsForList(listId: String?): Flow<List<ShoppingItem>> = callbackFlow {
+        if (listId.isNullOrBlank()) {
+            trySend(emptyList())
+            awaitClose { }
+            return@callbackFlow
+        }
+        val reg = itemsCol.whereEqualTo("listId", listId)
             .addSnapshotListener { snap, err ->
                 if (err != null) {
                     Log.w(TAG, "getItemsForList error", err)
                     return@addSnapshotListener
                 }
-                if (snap != null) {
-                    val out = snap.documents.map { d -> d.toShoppingItem() }
-                        .sortedWith(
-                            compareBy<ShoppingItem> { !it.inShoppingList }
-                                .thenBy { it.name.lowercase() }
-                        )
-                    trySend(out)
-                }
+                val items = snap?.documents?.mapNotNull { it.toShoppingItem() }?.sortedWith(
+                    compareBy<ShoppingItem> { !it.inShoppingList }.thenBy { it.name?.lowercase() ?: "" }
+                ).orEmpty()
+                trySend(items)
             }
-        awaitClose { registration.remove() }
+        awaitClose { reg.remove() }
     }
 
-    /** Añade un item a una lista. */
+    /** Añadir item a lista (si existe por nombre, VM decidirá si suma o crea). */
     suspend fun addItemToList(listId: String, item: ShoppingItem): String {
-        val doc = itemsCol.document()
-        val data = item.toMap(listId = listId, id = doc.id)
-        doc.set(data).await()
-        return doc.id
-    }
-
-    /** Actualiza un item (usa el id del propio item). */
-    suspend fun updateItem(item: ShoppingItem) {
-        val id = item.id
-        require(id.isNotBlank()) { "item.id vacío" }
-        val data = item.toMap(listId = item.listId, id = id)
+        val id = (item.id.takeIf { !it.isNullOrBlank() } ?: itemsCol.document().id)
+        val data = item.toMap(listId, id)
         itemsCol.document(id).set(data).await()
+        return id
     }
 
-    /** Elimina un item por ID. */
+    /** Actualizar item. */
+    suspend fun updateItem(item: ShoppingItem) {
+        val id = item.id ?: return
+        itemsCol.document(id).update(item.toMap(item.listId, id)).await()
+    }
+
+    /** Borrar item. */
     suspend fun deleteItem(itemId: String) {
         itemsCol.document(itemId).delete().await()
     }
 
-    /* ===================== STORAGE ===================== */
+    /* ===================== IMÁGENES (Firebase Storage) ===================== */
 
+    /** Sube imagen a /images/{random}.jpg y devuelve su URL de descarga. */
     suspend fun uploadImage(uri: Uri): String {
-        val fileName = "images/${System.currentTimeMillis()}_${UUID.randomUUID()}.jpg"
+        val fileName = "images/${UUID.randomUUID()}.jpg"
         val ref = storage.reference.child(fileName)
         ref.putFile(uri).await()
         return ref.downloadUrl.await().toString()
@@ -236,34 +233,111 @@ class ShoppingListRepository {
 
     data class BarcodeInfo(val name: String?, val imageUrl: String?)
 
-    /** Consulta OpenFoodFacts. Si falla, devuelve null y se usará el número del código. */
-    suspend fun resolveBarcodeInfo(barcode: String): BarcodeInfo? {
-        return try {
-            val url = URL("https://world.openfoodfacts.org/api/v0/product/$barcode.json")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 7000
-                readTimeout = 7000
-            }
+    /** Intenta resolver nombre+imagen de OpenFoodFacts (v2 → v0 fallback).
+     *  - Corre en Dispatchers.IO.
+     *  - Normaliza el código a solo dígitos y valida longitud (8..14).
+     *  - Construye nombre combinando product_name(_es)/generic_name(_es)+brand+quantity cuando procede.
+     */
+    suspend fun resolveBarcodeInfo(barcode: String): BarcodeInfo? = withContext(Dispatchers.IO) {
+        val code = barcode.filter { it.isDigit() }.takeIf { it.length in 8..14 } ?: return@withContext null
+
+        fun HttpURLConnection.setup() {
+            requestMethod = "GET"
+            connectTimeout = 7000
+            readTimeout = 7000
+            setRequestProperty("User-Agent", "ShoppingList/1.0 (Android)")
+            setRequestProperty("Accept-Language", "es,es-ES;q=0.9,en;q=0.8")
+        }
+
+        // 1) API v2 (preferida)
+        runCatching {
+            val url = URL(
+                "https://world.openfoodfacts.org/api/v2/product/$code" +
+                        "?fields=product_name,product_name_es,generic_name,generic_name_es,brands,quantity,image_small_url,image_url"
+            )
+            val conn = (url.openConnection() as HttpURLConnection).apply { setup() }
             conn.inputStream.use { `in` ->
                 val body = `in`.readBytes().toString(Charsets.UTF_8)
                 val json = JSONObject(body)
-                val status = json.optInt("status", 0)
-                if (status != 1) return null
-                val prod = json.optJSONObject("product") ?: return null
-                val name = prod.optString("product_name_es")
-                    .ifBlank { prod.optString("product_name") }
-                val image = prod.optString("image_small_url")
-                    .ifBlank { prod.optString("image_url") }
-                BarcodeInfo(name.ifBlank { null }, image.ifBlank { null })
+                val product = json.optJSONObject("product")
+                if (json.optInt("status", 0) == 1 && product != null) {
+                    return@withContext BarcodeInfo(
+                        name = buildProductName(product),
+                        imageUrl = chooseImage(product)
+                    )
+                }
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "resolveBarcodeInfo fail", e)
+        }.onFailure { Log.w(TAG, "resolveBarcodeInfo v2 fail", it) }
+
+        // 2) API v0 (respaldo)
+        return@withContext runCatching {
+            val url = URL("https://world.openfoodfacts.org/api/v0/product/$code.json")
+            val conn = (url.openConnection() as HttpURLConnection).apply { setup() }
+            conn.inputStream.use { `in` ->
+                val body = `in`.readBytes().toString(Charsets.UTF_8)
+                val json = JSONObject(body)
+                if (json.optInt("status", 0) != 1) null
+                else {
+                    val product = json.optJSONObject("product") ?: return@runCatching null
+                    BarcodeInfo(
+                        name = buildProductName(product),
+                        imageUrl = chooseImage(product)
+                    )
+                }
+            }
+        }.getOrElse {
+            Log.w(TAG, "resolveBarcodeInfo v0 fail", it)
             null
         }
     }
 
     /* ===================== Helpers ===================== */
+
+    private fun buildProductName(prod: JSONObject): String? {
+        // Preferencias de nombre
+        val nEs = prod.optString("product_name_es").trim()
+        val nEn = prod.optString("product_name").trim()
+        val gEs = prod.optString("generic_name_es").trim()
+        val gEn = prod.optString("generic_name").trim()
+        val base = when {
+            nEs.isNotBlank() -> nEs
+            nEn.isNotBlank() -> nEn
+            gEs.isNotBlank() -> gEs
+            gEn.isNotBlank() -> gEn
+            else -> ""
+        }
+
+        // Marca(s)
+        val brands = prod.optString("brands").split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        val brand = brands.firstOrNull() ?: ""
+
+        // Cantidad
+        val qty = prod.optString("quantity").trim()
+
+        // Composición final
+        val name = when {
+            base.isNotBlank() && brand.isNotBlank() && qty.isNotBlank() -> "$brand $base • $qty"
+            base.isNotBlank() && brand.isNotBlank() -> "$brand $base"
+            base.isNotBlank() && qty.isNotBlank() -> "$base • $qty"
+            base.isNotBlank() -> base
+            brand.isNotBlank() && qty.isNotBlank() -> "$brand • $qty"
+            brand.isNotBlank() -> brand
+            else -> null
+        }
+        return name
+    }
+
+    private fun chooseImage(prod: JSONObject): String? {
+        val small = prod.optString("image_small_url").trim()
+        val big = prod.optString("image_url").trim()
+        return when {
+            small.isNotBlank() -> small
+            big.isNotBlank() -> big
+            else -> null
+        }
+    }
 
     private fun ShoppingItem.toMap(listId: String?, id: String): Map<String, Any?> = hashMapOf(
         "id" to id,
@@ -281,14 +355,14 @@ class ShoppingListRepository {
         val data = this.data ?: emptyMap()
         return ShoppingItem(
             id = this.id,
-            name = data["name"] as? String ?: "",
+            name = (data["name"] as? String)?.takeIf { it.isNotBlank() } ?: "",
             inShoppingList = data["inShoppingList"] as? Boolean ?: true,
             listId = data["listId"] as? String,
             addedByUid = data["addedByUid"] as? String,
             imageUrl = data["imageUrl"] as? String,
-            price = (data["price"] as? Number)?.toDouble(),
-            previousPrice = (data["previousPrice"] as? Number)?.toDouble(),
-            quantity = (data["quantity"] as? Number)?.toInt() ?: 1
+            price = (data["price"] as? Number)?.toDouble()?.takeIf { it >= 0 },
+            previousPrice = (data["previousPrice"] as? Number)?.toDouble()?.takeIf { it >= 0 },
+            quantity = (data["quantity"] as? Number)?.toInt()?.coerceIn(1, 9999) ?: 1
         )
     }
 

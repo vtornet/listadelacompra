@@ -33,8 +33,13 @@ class ShoppingListViewModel : ViewModel() {
         _uid.value = fb.currentUser?.uid ?: ""
         _email.value = fb.currentUser?.email
     }
+
     init { auth.addAuthStateListener(authListener) }
-    override fun onCleared() { auth.removeAuthStateListener(authListener) }
+
+    override fun onCleared() {
+        super.onCleared()
+        auth.removeAuthStateListener(authListener)
+    }
 
     val lists: StateFlow<List<ShoppingList>> = combine(_uid, _email) { uid, email ->
         uid to email

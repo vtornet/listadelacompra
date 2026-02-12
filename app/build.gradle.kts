@@ -59,6 +59,10 @@ dependencies {
 // ML Kit Barcode Scanning (17.2.0 recomendado)
     implementation("com.google.mlkit:barcode-scanning:17.2.0")
 
+// Para ListenableFuture que usa CameraX
+    implementation("androidx.concurrent:concurrent-futures-ktx:1.1.0")
+
+
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.1")
     implementation("androidx.activity:activity-compose:1.9.0")
@@ -75,6 +79,8 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
+    implementation("com.google.guava:guava:33.2.1-android")
+
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
