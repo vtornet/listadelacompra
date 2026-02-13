@@ -55,7 +55,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.shoppinglist.data.models.ShoppingItem
 import com.shoppinglist.ui.auth.AuthViewModel
 import kotlinx.coroutines.delay
@@ -66,9 +65,14 @@ import kotlin.math.max
 @Composable
 fun ShoppingListScreen(
     authViewModel: AuthViewModel,
-    shoppingListViewModel: ShoppingListViewModel = viewModel(),
+    shoppingListViewModel: ShoppingListViewModel,
     onBack: () -> Unit = {}
 ) {
+    // Inicializar el ViewModel la primera vez
+    LaunchedEffect(Unit) {
+        shoppingListViewModel.ensureInitialized()
+    }
+
     // Estado del VM
     val allItems by shoppingListViewModel.items.collectAsState()
     val lists by shoppingListViewModel.lists.collectAsState()
@@ -90,6 +94,7 @@ fun ShoppingListScreen(
 
     var showScanner by remember { mutableStateOf(false) }
     var confirmMarkAll by remember { mutableStateOf(false) }
+    var confirmMarkAllToBuy by remember { mutableStateOf(false) }
 
     var itemForImage by remember { mutableStateOf<ShoppingItem?>(null) }
     var fullImageUrl by rememberSaveable { mutableStateOf<String?>(null) }
@@ -171,6 +176,10 @@ fun ShoppingListScreen(
                             DropdownMenuItem(
                                 text = { Text("Marcar todo como comprado") },
                                 onClick = { menuOpen = false; confirmMarkAll = true }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Añadir todo por comprar") },
+                                onClick = { menuOpen = false; confirmMarkAllToBuy = true }
                             )
                             DropdownMenuItem(
                                 text = { Text("Cerrar sesión") },
@@ -392,7 +401,7 @@ fun ShoppingListScreen(
         )
     }
 
-    // Confirmación "marcar todo"
+    // Confirmación "marcar todo como comprado"
     if (confirmMarkAll) {
         AlertDialog(
             onDismissRequest = { confirmMarkAll = false },
@@ -405,6 +414,22 @@ fun ShoppingListScreen(
                 }) { Text("Sí, marcar todo") }
             },
             dismissButton = { TextButton(onClick = { confirmMarkAll = false }) { Text("Cancelar") } }
+        )
+    }
+
+    // Confirmación "añadir todo por comprar"
+    if (confirmMarkAllToBuy) {
+        AlertDialog(
+            onDismissRequest = { confirmMarkAllToBuy = false },
+            title = { Text("Añadir todo por comprar") },
+            text = { Text("¿Quieres mover todos los artículos comprados de nuevo a la lista de compras?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmMarkAllToBuy = false
+                    shoppingListViewModel.markAllPurchasedToBuy()
+                }) { Text("Sí, añadir todo") }
+            },
+            dismissButton = { TextButton(onClick = { confirmMarkAllToBuy = false }) { Text("Cancelar") } }
         )
     }
 }

@@ -9,16 +9,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material3.*
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.google.firebase.auth.FirebaseAuth
 import com.shoppinglist.data.models.ShoppingList
 import com.shoppinglist.ui.auth.AuthViewModel
 import com.shoppinglist.ui.shoppinglist.ShoppingListViewModel
@@ -34,6 +33,7 @@ fun HomeScreen(
     onExitApp: () -> Unit
 ) {
     val lists by shoppingListViewModel.lists.collectAsState()
+    val currentUser = FirebaseAuth.getInstance().currentUser
 
     var showOverflow by remember { mutableStateOf(false) }
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -47,6 +47,13 @@ fun HomeScreen(
     // NUEVO: buscador de listas
     var query by rememberSaveable { mutableStateOf("") }
 
+    // Estado para rastrear listas compartidas nuevas (se marcan como vistas una vez que el usuario las ve)
+    var seenSharedListIds by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
+    val newSharedLists = remember(lists, seenSharedListIds, currentUser?.uid) {
+        lists.filter { list -> list.ownerUid != currentUser?.uid && list.id !in seenSharedListIds }
+    }
+    val showSharedNotification = newSharedLists.isNotEmpty()
+
     BackHandler { onExitApp() }
 
     fun norm(s: String): String =
@@ -58,7 +65,10 @@ fun HomeScreen(
         val q = norm(query)
         lists
             .filter { q.isBlank() || norm(it.name).contains(q) }
-            .sortedBy { norm(it.name) }
+            .sortedWith(
+                compareBy<ShoppingList> { list -> list.ownerUid != currentUser?.uid }
+                    .thenBy { norm(it.name) }
+            )
     }
 
     Scaffold(
@@ -88,6 +98,59 @@ fun HomeScreen(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
 
+            // Notificación de listas compartidas
+            if (showSharedNotification) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Filled.Group,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = if (newSharedLists.size == 1) {
+                                    "Tienes 1 lista compartida nueva"
+                                } else {
+                                    "Tienes ${newSharedLists.size} listas compartidas nuevas"
+                                },
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            newSharedLists.firstOrNull()?.let { list ->
+                                Text(
+                                    text = "\"${list.name}\"",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+                        Button(
+                            onClick = {
+                                seenSharedListIds = seenSharedListIds + newSharedLists.map { it.id }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer
+                            )
+                        ) {
+                            Text("Aceptar")
+                        }
+                    }
+                }
+            }
+
             // Hint + Buscador
             Text(
                 text = "Desplaza a la izquierda para eliminar una lista",
@@ -116,11 +179,14 @@ fun HomeScreen(
                         .fillMaxSize()
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
-                    items(filteredSorted, key = { it.id }) { l ->
+                    items(filteredSorted, key = { list -> list.id }) { list ->
+                        val isOwner = list.ownerUid == currentUser?.uid
+                        val isNew = !isOwner && list.id !in seenSharedListIds
+
                         val dismissState = rememberSwipeToDismissBoxState(
                             confirmValueChange = { value ->
                                 if (value == SwipeToDismissBoxValue.EndToStart) {
-                                    pendingDelete = l
+                                    pendingDelete = list
                                     false
                                 } else true
                             }
@@ -133,17 +199,22 @@ fun HomeScreen(
                             content = {
                                 Column {
                                     ListRow(
-                                        list = l,
+                                        list = list,
+                                        isOwner = isOwner,
+                                        isNew = isNew,
                                         onClick = {
-                                            shoppingListViewModel.switchList(l.id)
-                                            onOpenList(l.id)
+                                            shoppingListViewModel.switchList(list.id)
+                                            onOpenList(list.id)
                                         },
                                         onLongClick = {
-                                            pendingRename = l
-                                            renameText = l.name
+                                            // Solo permitir renombrar si eres propietario
+                                            if (isOwner) {
+                                                pendingRename = list
+                                                renameText = list.name
+                                            }
                                         }
                                     )
-                                    Divider()
+                                    HorizontalDivider()
                                 }
                             }
                         )
@@ -186,21 +257,33 @@ fun HomeScreen(
 
     // Confirmar eliminación
     pendingDelete?.let { toDelete ->
+        val isOwner = toDelete.ownerUid == currentUser?.uid
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("Eliminar lista") },
-            text = { Text("¿Seguro que deseas eliminar «${toDelete.name.ifBlank { toDelete.id }}»? Esta acción no se puede deshacer.") },
+            title = { Text(if (isOwner) "Eliminar lista" else "Abandonar lista") },
+            text = {
+                Text(
+                    if (isOwner)
+                        "¿Seguro que deseas eliminar «${toDelete.name.ifBlank { toDelete.id }}»? Esta acción no se puede deshacer."
+                    else
+                        "¿Seguro que deseas abandonar «${toDelete.name.ifBlank { toDelete.id }}»? Podrás volver a acceder si te vuelven a invitar."
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    shoppingListViewModel.deleteListCascade(toDelete.id)
+                    if (isOwner) {
+                        shoppingListViewModel.deleteListCascade(toDelete.id)
+                    } else {
+                        shoppingListViewModel.leaveSharedList(toDelete.id, currentUser?.email)
+                    }
                     pendingDelete = null
-                }) { Text("Eliminar") }
+                }) { Text(if (isOwner) "Eliminar" else "Abandonar") }
             },
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancelar") } }
         )
     }
 
-    // Renombrar (pulso largo)
+    // Renombrar (pulso largo) - solo para propietarios
     pendingRename?.let { toRename ->
         AlertDialog(
             onDismissRequest = { pendingRename = null },
@@ -233,23 +316,56 @@ fun HomeScreen(
 @Composable
 private fun ListRow(
     list: ShoppingList,
+    isOwner: Boolean,
+    isNew: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = if (isOwner) onLongClick else null
+            )
             .padding(vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
-            Text(text = list.name.ifBlank { "(Sin nombre)" }, style = MaterialTheme.typography.titleMedium)
-            Text(
-                text = "Propietario",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = list.name.ifBlank { "(Sin nombre)" },
+                    style = MaterialTheme.typography.titleMedium
+                )
+                if (isNew) {
+                    Spacer(Modifier.width(8.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = MaterialTheme.shapes.small
+                    ) {
+                        Text(
+                            text = "NUEVA",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = if (isOwner) "Propietario" else "Invitado",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (!isOwner && list.membersEmails.isNotEmpty()) {
+                    Text(
+                        text = " • ${list.membersEmails.size} miembro${if (list.membersEmails.size > 1) "s" else ""}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         }
     }
 }

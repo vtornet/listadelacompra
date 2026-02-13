@@ -1,4 +1,3 @@
-// Ruta: app/src/main/java/com/shoppinglist/ui/auth/LoginScreen.kt
 package com.shoppinglist.ui.auth
 
 import androidx.compose.foundation.layout.*
@@ -8,6 +7,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
@@ -16,10 +16,14 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun LoginScreen(viewModel: AuthViewModel) {
+fun LoginScreen(
+    viewModel: AuthViewModel
+) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+    var showResetDialog by remember { mutableStateOf(false) }
+    var resetEmailInput by rememberSaveable { mutableStateOf("") }
     val error by viewModel.error.collectAsState()
     val loading by viewModel.loading.collectAsState()
 
@@ -72,6 +76,21 @@ fun LoginScreen(viewModel: AuthViewModel) {
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !loading
             )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Enlace de recuperación de contraseña
+            TextButton(
+                onClick = {
+                    resetEmailInput = email
+                    showResetDialog = true
+                },
+                enabled = !loading,
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text("¿Olvidaste tu contraseña?")
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             // Indicador de progreso
@@ -80,17 +99,63 @@ fun LoginScreen(viewModel: AuthViewModel) {
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
+            // Botón de inicio de sesión con Google
+            Button(onClick = { viewModel.signInWithGoogle() }, enabled = !loading) {
+                Text("Continuar con Google")
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                Button(onClick = { viewModel.signIn(email, password) }, enabled = !loading) {
+                Button(onClick = { viewModel.signIn(email.trim(), password) }, enabled = !loading) {
                     Text(if (loading) "Procesando..." else "Iniciar Sesión")
                 }
-                Button(onClick = { viewModel.signUp(email, password) }, enabled = !loading) {
+                Button(onClick = { viewModel.signUp(email.trim(), password) }, enabled = !loading) {
                     Text("Registrarse")
                 }
             }
         }
+    }
+
+    // Diálogo de recuperación de contraseña
+    if (showResetDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetDialog = false },
+            title = { Text("Recuperar contraseña") },
+            text = {
+                Column {
+                    Text(
+                        "Introduce tu email para recibir un enlace de recuperación de contraseña.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = resetEmailInput,
+                        onValueChange = { resetEmailInput = it },
+                        label = { Text("Email") },
+                        maxLines = 1,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val emailText = resetEmailInput.trim()
+                        if (emailText.isNotBlank()) {
+                            viewModel.resetPassword(emailText)
+                            showResetDialog = false
+                        }
+                    },
+                    enabled = resetEmailInput.isNotBlank()
+                ) {
+                    Text("Enviar")
+                }
+            },
+            dismissButton = { TextButton(onClick = { showResetDialog = false }) { Text("Cancelar") } }
+        )
     }
 }

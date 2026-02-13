@@ -12,9 +12,18 @@ import com.shoppinglist.data.repository.ShoppingListRepository
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.text.Normalizer
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 
+/**
+ * ViewModel mejorado con gestión de estado robusta.
+ * - Usa Mutex para evitar condiciones de carrera en el estado de loading
+ * - Contador de operaciones activas para gestionar el estado de carga correctamente
+ * - Inicialización perezosa que solo se ejecuta una vez
+ */
 class ShoppingListViewModel : ViewModel() {
 
     private companion object {
@@ -27,19 +36,69 @@ class ShoppingListViewModel : ViewModel() {
     private val repository = ShoppingListRepository()
     private val auth = Firebase.auth
 
+    // Estado de autenticación
     private val _uid = MutableStateFlow(auth.currentUser?.uid ?: "")
     private val _email = MutableStateFlow(auth.currentUser?.email)
+
     private val authListener = FirebaseAuth.AuthStateListener { fb ->
         _uid.value = fb.currentUser?.uid ?: ""
         _email.value = fb.currentUser?.email
     }
 
-    init { auth.addAuthStateListener(authListener) }
+    // Mutex para evitar condiciones de carrera en el estado de loading
+    private val loadingMutex = Mutex()
+
+    // Contador de operaciones activas para saber si hay algo en progreso
+    private val activeOperations = AtomicInteger(0)
+
+    private val _loading = MutableStateFlow(false)
+    val loading = _loading.asStateFlow()
+
+    private val _error = MutableStateFlow<String?>(null)
+    val error = _error.asStateFlow()
+    fun clearError() { _error.value = null }
+
+    data class DuplicatePrompt(val name: String, val onConfirm: () -> Unit)
+    private val _duplicate = MutableStateFlow<DuplicatePrompt?>(null)
+    val duplicate: StateFlow<DuplicatePrompt?> = _duplicate.asStateFlow()
+    fun dismissDuplicate() { _duplicate.value = null }
+    fun confirmDuplicate() { _duplicate.value?.onConfirm?.invoke(); _duplicate.value = null }
+
+    // Flag para asegurar que la inicialización solo se ejecute una vez
+    private var isInitialized = false
+    private val initializationMutex = Mutex()
+
+    init {
+        auth.addAuthStateListener(authListener)
+    }
+
+    /**
+     * Inicializa el ViewModel de forma segura. Solo se ejecuta una vez.
+     */
+    suspend fun ensureInitialized() {
+        initializationMutex.withLock {
+            if (isInitialized) return@withLock
+
+            val uid = _uid.value
+            if (uid.isNotBlank()) {
+                try {
+                    val listId = repository.getOrCreateDefaultListId(uid, _email.value)
+                    _currentListId.value = listId
+                } catch (e: Exception) {
+                    handleError(e, "No se pudo inicializar tu lista.")
+                }
+            }
+
+            isInitialized = true
+        }
+    }
 
     override fun onCleared() {
         super.onCleared()
         auth.removeAuthStateListener(authListener)
     }
+
+    // ===== STREAMS REACTIVOS =====
 
     val lists: StateFlow<List<ShoppingList>> = combine(_uid, _email) { uid, email ->
         uid to email
@@ -58,46 +117,45 @@ class ShoppingListViewModel : ViewModel() {
         .flatMapLatest { id -> repository.getItemsForList(id) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    private val _loading = MutableStateFlow(false)
-    val loading = _loading.asStateFlow()
+    // ===== GESTIÓN DE LOADING =====
 
-    private val _error = MutableStateFlow<String?>(null)
-    val error = _error.asStateFlow()
-    fun clearError() { _error.value = null }
-
-    data class DuplicatePrompt(val name: String, val onConfirm: () -> Unit)
-    private val _duplicate = MutableStateFlow<DuplicatePrompt?>(null)
-    val duplicate: StateFlow<DuplicatePrompt?> = _duplicate.asStateFlow()
-    fun dismissDuplicate() { _duplicate.value = null }
-    fun confirmDuplicate() { _duplicate.value?.onConfirm?.invoke(); _duplicate.value = null }
-
-    init {
-        viewModelScope.launch {
-            val uid = _uid.value
-            if (uid.isBlank()) return@launch
+    /**
+     * Ejecuta una operación con indicador de loading.
+     * Usa un contador para permitir múltiples operaciones concurrentes.
+     */
+    private suspend fun <T> withLoading(block: suspend () -> T): Result<T> {
+        return loadingMutex.withLock {
             _loading.value = true
+            activeOperations.incrementAndGet()
+        }.let {
             try {
-                val listId = repository.getOrCreateDefaultListId(uid, _email.value)
-                _currentListId.value = listId
-                repository.migrateMyItemsToList(uid, listId)
+                Result.success(block())
             } catch (e: Exception) {
-                handleError(e, "No se pudo inicializar tu lista.")
-            } finally { _loading.value = false }
+                Result.failure(e)
+            } finally {
+                if (activeOperations.decrementAndGet() == 0) {
+                    loadingMutex.withLock {
+                        _loading.value = false
+                    }
+                }
+            }
         }
     }
 
-    /* ===== Listas ===== */
+    // ===== LISTAS =====
 
-    fun switchList(listId: String) { if (listId.isNotBlank()) _currentListId.value = listId }
+    fun switchList(listId: String) {
+        if (listId.isNotBlank()) _currentListId.value = listId
+    }
 
     fun inviteMember(email: String) {
         val listId = _currentListId.value
         if (listId.isBlank()) return
         viewModelScope.launch {
-            _loading.value = true
-            try { repository.addMemberEmail(listId, email.trim()) }
-            catch (e: Exception) { handleError(e, "No se pudo invitar.") }
-            finally { _loading.value = false }
+            withLoading {
+                repository.addMemberEmail(listId, email.trim())
+                _error.value = "$email ha sido añadido a esta lista. La persona deberá tener la app instalada e iniciar sesión con este email para ver la lista compartida."
+            }
         }
     }
 
@@ -105,14 +163,13 @@ class ShoppingListViewModel : ViewModel() {
         val uid = _uid.value
         if (uid.isBlank()) return
         viewModelScope.launch {
-            _loading.value = true
-            try {
+            withLoading {
                 val newId = repository.createList(name, uid)
                 _currentListId.value = newId
                 onCreated(newId)
-            } catch (e: Exception) {
+            }.onFailure { e ->
                 handleError(e, "No se pudo crear la lista.")
-            } finally { _loading.value = false }
+            }
         }
     }
 
@@ -120,30 +177,44 @@ class ShoppingListViewModel : ViewModel() {
         val id = _currentListId.value
         if (id.isBlank()) return
         viewModelScope.launch {
-            _loading.value = true
-            try { repository.renameList(id, newName) }
-            catch (e: Exception) { handleError(e, "No se pudo renombrar la lista.") }
-            finally { _loading.value = false }
+            withLoading {
+                repository.renameList(id, newName)
+            }.onFailure { e ->
+                handleError(e, "No se pudo renombrar la lista.")
+            }
         }
     }
 
-    /** Ahora borra en cascada (items + lista). */
     fun deleteListCascade(listId: String) {
         viewModelScope.launch {
-            _loading.value = true
-            try {
+            withLoading {
                 repository.deleteListDeep(listId)
                 if (_currentListId.value == listId) {
                     val remaining = lists.value.firstOrNull { it.id != listId }?.id ?: ""
                     _currentListId.value = remaining
                 }
-            } catch (e: Exception) {
+            }.onFailure { e ->
                 handleError(e, "No se pudo eliminar la lista.")
-            } finally { _loading.value = false }
+            }
         }
     }
 
-    /* ===== Ítems ===== */
+    fun leaveSharedList(listId: String, email: String?) {
+        if (email.isNullOrBlank()) return
+        viewModelScope.launch {
+            withLoading {
+                repository.removeMemberEmail(listId, email)
+                if (_currentListId.value == listId) {
+                    val remaining = lists.value.firstOrNull { it.id != listId }?.id ?: ""
+                    _currentListId.value = remaining
+                }
+            }.onFailure { e ->
+                handleError(e, "No se pudo abandonar la lista.")
+            }
+        }
+    }
+
+    // ===== ITEMS =====
 
     private fun norm(s: String): String =
         Normalizer.normalize(s.trim(), Normalizer.Form.NFD)
@@ -165,80 +236,80 @@ class ShoppingListViewModel : ViewModel() {
         actuallyAddItem(name, listId)
     }
 
-    /** Aumenta cantidad (mín. 1). */
     fun incrementQuantity(item: ShoppingItem) {
         viewModelScope.launch {
-            try {
+            withLoading {
                 repository.updateItem(item.copy(quantity = (item.quantity + 1).coerceAtLeast(1)))
-            } catch (e: Exception) {
+            }.onFailure { e ->
                 _error.value = e.message
             }
         }
     }
 
-    /** Disminuye cantidad (mín. 1). */
     fun decrementQuantity(item: ShoppingItem) {
         viewModelScope.launch {
-            try {
+            withLoading {
                 val newQ = (item.quantity - 1).coerceAtLeast(1)
                 if (newQ != item.quantity) repository.updateItem(item.copy(quantity = newQ))
-            } catch (e: Exception) {
+            }.onFailure { e ->
                 _error.value = e.message
             }
         }
     }
 
-    /** Fija cantidad explícita (mín. 1). */
     fun setQuantity(item: ShoppingItem, n: Int) {
         if (n < 1) return
         viewModelScope.launch {
-            try {
+            withLoading {
                 repository.updateItem(item.copy(quantity = n))
-            } catch (e: Exception) {
+            }.onFailure { e ->
                 _error.value = e.message
             }
         }
     }
 
-    /** Opción para el diálogo de duplicado: sumar 1 a la cantidad del existente. */
     fun mergeDuplicateByName(name: String) {
         viewModelScope.launch {
-            try {
+            withLoading {
                 val existing = items.value.firstOrNull { it.name.equals(name, ignoreCase = true) }
                 if (existing != null) {
                     repository.updateItem(existing.copy(quantity = existing.quantity + 1))
                 }
-            } catch (e: Exception) {
+            }.onFailure { e ->
                 handleError(e, "No se pudo completar la operación.")
-            } finally {
-                _duplicate.value = null
             }
+            _duplicate.value = null
         }
     }
 
-
-    /** Marca todos los artículos "por comprar" como comprados. */
     fun markAllToBuyAsPurchased() {
         viewModelScope.launch {
-            _loading.value = true
-            try {
+            withLoading {
                 val toBuy = items.value.filter { it.inShoppingList }
-                for (it in toBuy) {
-                    repository.updateItem(it.copy(inShoppingList = false))
-                }
-            } catch (e: Exception) {
+                if (toBuy.isEmpty()) return@withLoading
+                repository.markItemsAsPurchased(toBuy.map { it.id }.filterNotNull())
+            }.onFailure { e ->
                 handleError(e, "No se pudieron marcar los artículos.")
-            } finally {
-                _loading.value = false
             }
         }
     }
 
+    /** Marca todos los artículos comprados como "por comprar". */
+    fun markAllPurchasedToBuy() {
+        viewModelScope.launch {
+            withLoading {
+                val purchased = items.value.filter { !it.inShoppingList }
+                if (purchased.isEmpty()) return@withLoading
+                repository.markItemsAsToBuy(purchased.map { it.id }.filterNotNull())
+            }.onFailure { e ->
+                handleError(e, "No se pudieron marcar los artículos.")
+            }
+        }
+    }
 
     private fun actuallyAddItem(name: String, listId: String) {
         viewModelScope.launch {
-            _loading.value = true
-            try {
+            withLoading {
                 val newItem = ShoppingItem(
                     name = name.trim(),
                     inShoppingList = true,
@@ -246,33 +317,34 @@ class ShoppingListViewModel : ViewModel() {
                     listId = listId
                 )
                 repository.addItemToList(listId, newItem)
-            } catch (e: Exception) {
+            }.onFailure { e ->
                 handleError(e, "No se pudo añadir el artículo.")
-            } finally { _loading.value = false }
+            }
         }
     }
 
     fun addItemFromBarcode(barcode: String) {
         val listId = _currentListId.value
         viewModelScope.launch {
-            _loading.value = true
-            try {
+            withLoading {
                 val info = repository.resolveBarcodeInfo(barcode)
                 val finalName = (info?.name ?: barcode).trim()
                 if (existsByName(finalName)) {
-                    _duplicate.value = DuplicatePrompt(finalName) { actuallyAddScanned(finalName, info?.imageUrl, listId) }
+                    _duplicate.value = DuplicatePrompt(finalName) {
+                        actuallyAddScanned(finalName, info?.imageUrl, listId)
+                    }
                 } else {
                     actuallyAddScanned(finalName, info?.imageUrl, listId)
                 }
-            } catch (e: Exception) {
+            }.onFailure { e ->
                 handleError(e, "No se pudo añadir el artículo desde código.")
-            } finally { _loading.value = false }
+            }
         }
     }
 
     private fun actuallyAddScanned(name: String, imageUrl: String?, listId: String) {
         viewModelScope.launch {
-            try {
+            withLoading {
                 val newItem = ShoppingItem(
                     name = name,
                     inShoppingList = true,
@@ -281,7 +353,7 @@ class ShoppingListViewModel : ViewModel() {
                     listId = listId
                 )
                 repository.addItemToList(listId, newItem)
-            } catch (e: Exception) {
+            }.onFailure { e ->
                 handleError(e, "No se pudo añadir el artículo.")
             }
         }
@@ -289,35 +361,34 @@ class ShoppingListViewModel : ViewModel() {
 
     fun toggleItemStatus(item: ShoppingItem) {
         viewModelScope.launch {
-            _loading.value = true
-            try { repository.updateItem(item.copy(inShoppingList = !item.inShoppingList)) }
-            catch (e: Exception) { handleError(e, "No se pudo actualizar el estado.") }
-            finally { _loading.value = false }
+            withLoading {
+                repository.updateItem(item.copy(inShoppingList = !item.inShoppingList))
+            }.onFailure { e ->
+                handleError(e, "No se pudo actualizar el estado.")
+            }
         }
     }
 
     fun addImageToItem(item: ShoppingItem, imageUri: Uri) {
         viewModelScope.launch {
-            _loading.value = true
-            try {
+            withLoading {
                 val imageUrl = repository.uploadImage(imageUri)
                 repository.updateItem(item.copy(imageUrl = imageUrl))
-            } catch (e: Exception) {
+            }.onFailure { e ->
                 handleError(e, "No se pudo subir la imagen.")
-            } finally { _loading.value = false }
+            }
         }
     }
 
     fun removeImageFromItem(item: ShoppingItem) {
         val url = item.imageUrl ?: return
         viewModelScope.launch {
-            _loading.value = true
-            try {
+            withLoading {
                 repository.deleteImageByUrl(url)
                 repository.updateItem(item.copy(imageUrl = null))
-            } catch (e: Exception) {
+            }.onFailure { e ->
                 handleError(e, "No se pudo eliminar la imagen.")
-            } finally { _loading.value = false }
+            }
         }
     }
 
@@ -332,52 +403,49 @@ class ShoppingListViewModel : ViewModel() {
 
     private fun actuallyRename(item: ShoppingItem, newName: String) {
         viewModelScope.launch {
-            _loading.value = true
-            try { repository.updateItem(item.copy(name = newName.trim())) }
-            catch (e: Exception) { handleError(e, "No se pudo renombrar el artículo.") }
-            finally { _loading.value = false }
+            withLoading {
+                repository.updateItem(item.copy(name = newName.trim()))
+            }.onFailure { e ->
+                handleError(e, "No se pudo renombrar el artículo.")
+            }
         }
     }
 
     fun deleteItem(item: ShoppingItem) {
         viewModelScope.launch {
-            _loading.value = true
-            try {
+            withLoading {
                 item.imageUrl?.let { repository.deleteImageByUrl(it) }
                 repository.deleteItem(item.id)
-            } catch (e: Exception) {
+            }.onFailure { e ->
                 handleError(e, "No se pudo eliminar el artículo.")
-            } finally { _loading.value = false }
+            }
         }
     }
 
     fun updatePrice(item: ShoppingItem, newPrice: Double) {
         viewModelScope.launch {
-            _loading.value = true
-            try { repository.updateItem(item.copy(previousPrice = item.price, price = newPrice)) }
-            catch (e: Exception) { handleError(e, "No se pudo actualizar el precio.") }
-            finally { _loading.value = false }
+            withLoading {
+                repository.updateItem(item.copy(previousPrice = item.price, price = newPrice))
+            }.onFailure { e ->
+                handleError(e, "No se pudo actualizar el precio.")
+            }
         }
     }
 
     fun clearPrice(item: ShoppingItem) {
         viewModelScope.launch {
-            _loading.value = true
-            try {
+            withLoading {
                 repository.updateItem(item.copy(previousPrice = item.price, price = null))
-            } catch (e: Exception) {
+            }.onFailure { e ->
                 handleError(e, "No se pudo limpiar el precio.")
-            } finally {
-                _loading.value = false
             }
         }
     }
 
-    private fun handleError(e: Exception, fallback: String) {
-        val message = if (e is TimeoutCancellationException) {
-            "La conexión está tardando más de lo esperado. Comprueba tu red e inténtalo de nuevo."
-        } else {
-            e.message ?: fallback
+    private fun handleError(e: Throwable, fallback: String) {
+        val message = when (e) {
+            is TimeoutCancellationException -> "La conexión está tardando más de lo esperado. Comprueba tu red e inténtalo de nuevo."
+            else -> e.message ?: fallback
         }
         _error.value = message
     }

@@ -210,6 +210,26 @@ class ShoppingListRepository {
         itemsCol.document(itemId).delete().await()
     }
 
+    /** Marca múltiples items como comprados (no en lista) en una sola operación batch. */
+    suspend fun markItemsAsPurchased(itemIds: List<String>) {
+        if (itemIds.isEmpty()) return
+        firestore.runBatch { batch ->
+            for (id in itemIds) {
+                batch.update(itemsCol.document(id), "inShoppingList", false)
+            }
+        }.await()
+    }
+
+    /** Marca múltiples items como "por comprar" (en lista) en una sola operación batch. */
+    suspend fun markItemsAsToBuy(itemIds: List<String>) {
+        if (itemIds.isEmpty()) return
+        firestore.runBatch { batch ->
+            for (id in itemIds) {
+                batch.update(itemsCol.document(id), "inShoppingList", true)
+            }
+        }.await()
+    }
+
     /* ===================== IMÁGENES (Firebase Storage) ===================== */
 
     /** Sube imagen a /images/{random}.jpg y devuelve su URL de descarga. */
