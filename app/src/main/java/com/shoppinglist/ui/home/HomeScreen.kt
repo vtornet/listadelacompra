@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -48,7 +49,8 @@ fun HomeScreen(
     authViewModel: AuthViewModel,
     shoppingListViewModel: ShoppingListViewModel,
     onOpenList: (String) -> Unit,
-    onExitApp: () -> Unit
+    onExitApp: () -> Unit,
+    onShowStatistics: () -> Unit = {}
 ) {
     val lists by shoppingListViewModel.lists.collectAsState()
     val currentUser = FirebaseAuth.getInstance().currentUser
@@ -122,6 +124,16 @@ fun HomeScreen(
                             Icon(Icons.Filled.MoreVert, contentDescription = "Menú")
                         }
                         DropdownMenu(expanded = showOverflow, onDismissRequest = { showOverflow = false }) {
+                            // Estadísticas
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Filled.BarChart, null) },
+                                text = { Text("Estadísticas") },
+                                onClick = {
+                                    showOverflow = false
+                                    onShowStatistics()
+                                }
+                            )
+                            HorizontalDivider()
                             // Exportar listas (solo si hay listas propias)
                             val myListsCount = lists.count { it.ownerUid == currentUser?.uid }
                             if (myListsCount > 0) {

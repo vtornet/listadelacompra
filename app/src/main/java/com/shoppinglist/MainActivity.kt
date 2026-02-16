@@ -23,6 +23,7 @@ import com.shoppinglist.ui.auth.AuthViewModel
 import com.shoppinglist.ui.auth.LoginScreen
 import com.shoppinglist.ui.home.HomeScreen
 import com.shoppinglist.ui.shoppinglist.ShoppingListScreen
+import com.shoppinglist.ui.statistics.StatisticsScreen
 import com.shoppinglist.ui.theme.ShoppingListTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -153,7 +154,8 @@ fun AppNavigation(
                 authViewModel = authViewModel,
                 shoppingListViewModel = shoppingListViewModel,
                 onOpenList = { screen = "list" },
-                onExitApp = { }
+                onExitApp = { },
+                onShowStatistics = { screen = "statistics" }
             )
         }
         "list" -> {
@@ -162,6 +164,17 @@ fun AppNavigation(
                 authViewModel = authViewModel,
                 shoppingListViewModel = shoppingListViewModel,
                 onBack = { screen = "home" }
+            )
+        }
+        "statistics" -> {
+            BackHandler { screen = "home" }
+            StatisticsScreen(
+                shoppingListViewModel = shoppingListViewModel,
+                onBack = { screen = "home" },
+                onViewList = { listId ->
+                    shoppingListViewModel.switchList(listId)
+                    screen = "list"
+                }
             )
         }
     }
