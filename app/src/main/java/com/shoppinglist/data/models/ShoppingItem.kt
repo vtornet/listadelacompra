@@ -9,5 +9,6 @@ data class ShoppingItem(
     val imageUrl: String? = null,
     val price: Double? = null,          // precio actual
     val previousPrice: Double? = null,  // precio anterior
-    val quantity: Int = 1               // NUEVO: cantidad (mínimo 1)
+    val quantity: Int = 1,              // cantidad (mínimo 1)
+    val createdAt: Long = System.currentTimeMillis() // fecha de creación en ms
 )

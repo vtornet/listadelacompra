@@ -235,6 +235,27 @@ class ShoppingListRepository {
         }
     }
 
+    /** Obtiene items de múltiples listas filtrados por fecha de creación en una sola consulta. */
+    suspend fun getItemsForListsFilteredByDate(
+        listIds: List<String>,
+        minCreatedAt: Long? = null
+    ): List<ShoppingItem> {
+        if (listIds.isEmpty()) return emptyList()
+        return try {
+            var query = itemsCol.whereIn("listId", listIds.take(10)) // Firestore limita a 10
+            minCreatedAt?.let {
+                query = query.whereGreaterThanOrEqualTo("createdAt", it)
+            }
+            query.get()
+                .await()
+                .documents
+                .mapNotNull { it.toShoppingItem() }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting filtered items", e)
+            emptyList()
+        }
+    }
+
     /** Marca múltiples items como "por comprar" (en lista) en una sola operación batch. */
     suspend fun markItemsAsToBuy(itemIds: List<String>) {
         if (itemIds.isEmpty()) return
@@ -383,7 +404,8 @@ class ShoppingListRepository {
         "imageUrl" to imageUrl,
         "price" to price,
         "previousPrice" to previousPrice,
-        "quantity" to quantity
+        "quantity" to quantity,
+        "createdAt" to (createdAt.takeIf { it > 0 } ?: System.currentTimeMillis())
     )
 
     private fun com.google.firebase.firestore.DocumentSnapshot.toShoppingItem(): ShoppingItem {
@@ -397,7 +419,8 @@ class ShoppingListRepository {
             imageUrl = data["imageUrl"] as? String,
             price = (data["price"] as? Number)?.toDouble()?.takeIf { it >= 0 },
             previousPrice = (data["previousPrice"] as? Number)?.toDouble()?.takeIf { it >= 0 },
-            quantity = (data["quantity"] as? Number)?.toInt()?.coerceIn(1, 9999) ?: 1
+            quantity = (data["quantity"] as? Number)?.toInt()?.coerceIn(1, 9999) ?: 1,
+            createdAt = (data["createdAt"] as? Number)?.toLong() ?: System.currentTimeMillis()
         )
     }
 

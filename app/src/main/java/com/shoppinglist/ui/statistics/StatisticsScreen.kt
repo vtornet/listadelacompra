@@ -3,7 +3,12 @@ package com.shoppinglist.ui.statistics
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,8 +19,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.shoppinglist.data.models.ShoppingList
 import com.shoppinglist.ui.shoppinglist.ShoppingListViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -26,6 +33,7 @@ fun StatisticsScreen(
 ) {
     val viewModel: StatisticsViewModel = viewModel()
     val uiState by viewModel.uiState.collectAsState()
+    val selectedPeriod by viewModel.selectedPeriod.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.loadStatistics()
@@ -37,7 +45,7 @@ fun StatisticsScreen(
                 title = { Text("Estadísticas") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Volver")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
                     }
                 }
             )
@@ -90,11 +98,18 @@ fun StatisticsScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    // Selector de período
+                    item {
+                        PeriodFilterSelector(
+                            selectedPeriod = selectedPeriod,
+                            onPeriodSelected = { viewModel.setPeriod(it) },
+                            periodInfo = state.periodInfo
+                        )
+                    }
+
                     // Resumen general
                     item {
-                        GeneralStatsCard(
-                            stats = state.generalStats
-                        )
+                        GeneralStatsCard(stats = state.generalStats)
                     }
 
                     // Estadísticas por lista
@@ -102,7 +117,7 @@ fun StatisticsScreen(
                         item {
                             SectionTitle(
                                 text = "Estadísticas por lista",
-                                icon = Icons.Default.List
+                                icon = Icons.AutoMirrored.Filled.List
                             )
                         }
                         items(state.listStats) { listStats ->
@@ -134,7 +149,7 @@ fun StatisticsScreen(
                         item {
                             SectionTitle(
                                 text = "Productos más frecuentes",
-                                icon = Icons.Default.TrendingUp
+                                icon = Icons.AutoMirrored.Filled.TrendingUp
                             )
                         }
                         item {
@@ -173,9 +188,93 @@ private fun SectionTitle(text: String, icon: androidx.compose.ui.graphics.vector
 }
 
 @Composable
-private fun GeneralStatsCard(
-    stats: GeneralStats
+private fun PeriodFilterSelector(
+    selectedPeriod: PeriodFilter,
+    onPeriodSelected: (PeriodFilter) -> Unit,
+    periodInfo: PeriodInfo
 ) {
+    val periods = listOf(
+        PeriodFilter.TODAY to "Hoy",
+        PeriodFilter.THIS_WEEK to "Semana",
+        PeriodFilter.LAST_7_DAYS to "7 días",
+        PeriodFilter.THIS_MONTH to "Mes",
+        PeriodFilter.LAST_30_DAYS to "30 días",
+        PeriodFilter.THIS_YEAR to "Año",
+        PeriodFilter.ALL to "Todo"
+    )
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Información del período
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Período: ${periodInfo.label}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+                Text(
+                    text = formatDateRange(periodInfo.startDate, periodInfo.endDate),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                )
+            }
+
+            // Chips de selección
+            FilterChipsRow(
+                selectedPeriod = selectedPeriod,
+                onPeriodSelected = onPeriodSelected,
+                periods = periods
+            )
+        }
+    }
+}
+
+@Composable
+private fun FilterChipsRow(
+    selectedPeriod: PeriodFilter,
+    onPeriodSelected: (PeriodFilter) -> Unit,
+    periods: List<Pair<PeriodFilter, String>>
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        periods.forEach { (period, label) ->
+            FilterChip(
+                selected = selectedPeriod == period,
+                onClick = { onPeriodSelected(period) },
+                label = { Text(label) }
+            )
+        }
+    }
+}
+
+private fun formatDateRange(start: Long, end: Long): String {
+    val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+    return if (start == 0L) {
+        "Histórico"
+    } else {
+        "${sdf.format(Date(start))} - ${sdf.format(Date(end))}"
+    }
+}
+
+@Composable
+private fun GeneralStatsCard(stats: GeneralStats) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -198,7 +297,7 @@ private fun GeneralStatsCard(
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 StatColumn(
-                    icon = Icons.Default.List,
+                    icon = Icons.AutoMirrored.Filled.List,
                     label = "Listas",
                     value = stats.totalLists.toString()
                 )
