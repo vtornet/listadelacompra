@@ -1,6 +1,11 @@
 package com.shoppinglist.ui.home
 
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -10,19 +15,32 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.google.firebase.auth.FirebaseAuth
 import com.shoppinglist.data.models.ShoppingList
 import com.shoppinglist.ui.auth.AuthViewModel
 import com.shoppinglist.ui.shoppinglist.ShoppingListViewModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.FileOutputStream
+import java.io.InputStream
 import java.text.Normalizer
+import java.text.SimpleDateFormat
 import java.util.Locale
+
+private const val REQUEST_CODE_EXPORT = 1001
+private const val REQUEST_CODE_IMPORT = 1002
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,6 +52,7 @@ fun HomeScreen(
 ) {
     val lists by shoppingListViewModel.lists.collectAsState()
     val currentUser = FirebaseAuth.getInstance().currentUser
+    val context = LocalContext.current
 
     var showOverflow by remember { mutableStateOf(false) }
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -71,6 +90,28 @@ fun HomeScreen(
             )
     }
 
+    // Función para exportar listas
+    fun onExportLists() {
+        val activity = context as? Activity ?: return
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/json"
+            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(System.currentTimeMillis())
+            putExtra(Intent.EXTRA_TITLE, "listas_compra_$timestamp.json")
+        }
+        activity.startActivityForResult(intent, REQUEST_CODE_EXPORT)
+    }
+
+    // Función para importar listas
+    fun onImportLists() {
+        val activity = context as? Activity ?: return
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/json"
+        }
+        activity.startActivityForResult(intent, REQUEST_CODE_IMPORT)
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -81,6 +122,29 @@ fun HomeScreen(
                             Icon(Icons.Filled.MoreVert, contentDescription = "Menú")
                         }
                         DropdownMenu(expanded = showOverflow, onDismissRequest = { showOverflow = false }) {
+                            // Exportar listas (solo si hay listas propias)
+                            val myListsCount = lists.count { it.ownerUid == currentUser?.uid }
+                            if (myListsCount > 0) {
+                                DropdownMenuItem(
+                                    leadingIcon = { Icon(Icons.Filled.Upload, null) },
+                                    text = { Text("Exportar listas") },
+                                    onClick = {
+                                        showOverflow = false
+                                        onExportLists()
+                                    }
+                                )
+                                HorizontalDivider()
+                            }
+                            // Importar listas
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Filled.Download, null) },
+                                text = { Text("Importar listas") },
+                                onClick = {
+                                    showOverflow = false
+                                    onImportLists()
+                                }
+                            )
+                            HorizontalDivider()
                             DropdownMenuItem(
                                 text = { Text("Cerrar sesión") },
                                 onClick = { showOverflow = false; authViewModel.signOut() }

@@ -220,6 +220,21 @@ class ShoppingListRepository {
         }.await()
     }
 
+    /** Obtiene todos los items de una lista de forma síncrona (para exportación). */
+    suspend fun getItemsForListSync(listId: String): List<ShoppingItem> {
+        if (listId.isBlank()) return emptyList()
+        return try {
+            itemsCol.whereEqualTo("listId", listId)
+                .get()
+                .await()
+                .documents
+                .mapNotNull { it.toShoppingItem() }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting items for list $listId", e)
+            emptyList()
+        }
+    }
+
     /** Marca múltiples items como "por comprar" (en lista) en una sola operación batch. */
     suspend fun markItemsAsToBuy(itemIds: List<String>) {
         if (itemIds.isEmpty()) return

@@ -442,6 +442,84 @@ class ShoppingListViewModel : ViewModel() {
         }
     }
 
+    // ===== EXPORTAR / IMPORTAR =====
+
+    /**
+     * Genera los datos exportables de todas las listas del usuario actual.
+     * Solo exporta las listas donde el usuario es propietario.
+     */
+    suspend fun generateExportData(): com.shoppinglist.data.models.ExportableData? {
+        val uid = _uid.value
+        if (uid.isBlank()) return null
+
+        return try {
+            val myLists = lists.value.filter { it.ownerUid == uid }
+            val exportableLists = myLists.map { list ->
+                // Obtener items de cada lista individualmente desde Firestore
+                val listItems = repository.getItemsForListSync(list.id)
+                com.shoppinglist.data.models.ExportableList(
+                    name = list.name,
+                    items = listItems.map { item ->
+                        com.shoppinglist.data.models.ExportableItem(
+                            name = item.name,
+                            inShoppingList = item.inShoppingList,
+                            imageUrl = item.imageUrl,
+                            price = item.price,
+                            previousPrice = item.previousPrice,
+                            quantity = item.quantity
+                        )
+                    }
+                )
+            }
+            com.shoppinglist.data.models.ExportableData(
+                version = 1,
+                exportDate = System.currentTimeMillis(),
+                lists = exportableLists
+            )
+        } catch (e: Exception) {
+            handleError(e, "No se pudo generar los datos de exportación.")
+            null
+        }
+    }
+
+    /**
+     * Importa listas desde datos exportados.
+     * Crea nuevas listas con los items importados.
+     * Devuelve el número de listas importadas.
+     */
+    suspend fun importFromData(data: com.shoppinglist.data.models.ExportableData): Int {
+        val uid = _uid.value
+        if (uid.isBlank()) return 0
+
+        return try {
+            var importedCount = 0
+            data.lists.forEach { exportableList ->
+                // Crear nueva lista
+                val newListId = repository.createList(exportableList.name, uid)
+
+                // Importar items
+                exportableList.items.forEach { exportableItem ->
+                    val newItem = ShoppingItem(
+                        name = exportableItem.name,
+                        inShoppingList = exportableItem.inShoppingList,
+                        imageUrl = exportableItem.imageUrl,
+                        price = exportableItem.price,
+                        previousPrice = exportableItem.previousPrice,
+                        quantity = exportableItem.quantity,
+                        addedByUid = uid,
+                        listId = newListId
+                    )
+                    repository.addItemToList(newListId, newItem)
+                }
+                importedCount++
+            }
+            importedCount
+        } catch (e: Exception) {
+            handleError(e, "No se pudo completar la importación.")
+            0
+        }
+    }
+
     private fun handleError(e: Throwable, fallback: String) {
         val message = when (e) {
             is TimeoutCancellationException -> "La conexión está tardando más de lo esperado. Comprueba tu red e inténtalo de nuevo."

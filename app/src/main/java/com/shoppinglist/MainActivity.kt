@@ -1,5 +1,7 @@
 package com.shoppinglist
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -15,17 +17,28 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.shoppinglist.ui.auth.AuthViewModel
 import com.shoppinglist.ui.auth.LoginScreen
 import com.shoppinglist.ui.home.HomeScreen
 import com.shoppinglist.ui.shoppinglist.ShoppingListScreen
 import com.shoppinglist.ui.theme.ShoppingListTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.FileOutputStream
+import java.io.InputStream
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var mainAuthViewModel: AuthViewModel
     private lateinit var mainShoppingListViewModel: com.shoppinglist.ui.shoppinglist.ShoppingListViewModel
+
+    companion object {
+        const val REQUEST_CODE_EXPORT = 1001
+        const val REQUEST_CODE_IMPORT = 1002
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,6 +65,69 @@ class MainActivity : ComponentActivity() {
                         shoppingListViewModel = mainShoppingListViewModel
                     )
                 }
+            }
+        }
+    }
+
+    @Deprecated("This method has been deprecated in favor of using the Activity Result API")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        when (requestCode) {
+            REQUEST_CODE_EXPORT -> {
+                if (resultCode == RESULT_OK && data != null) {
+                    data.data?.let { uri ->
+                        handleExportResult(uri)
+                    }
+                }
+            }
+            REQUEST_CODE_IMPORT -> {
+                if (resultCode == RESULT_OK && data != null) {
+                    data.data?.let { uri ->
+                        handleImportResult(uri)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun handleExportResult(uri: Uri) {
+        lifecycleScope.launch {
+            try {
+                val exportData = mainShoppingListViewModel.generateExportData()
+                if (exportData != null) {
+                    val jsonContent = exportData.toJson()
+                    withContext(Dispatchers.IO) {
+                        contentResolver.openOutputStream(uri)?.use { outputStream ->
+                            outputStream.write(jsonContent.toByteArray())
+                            outputStream.flush()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun handleImportResult(uri: Uri) {
+        lifecycleScope.launch {
+            try {
+                val jsonContent = withContext(Dispatchers.IO) {
+                    contentResolver.openInputStream(uri)?.use { inputStream ->
+                        inputStream.bufferedReader().readText()
+                    }
+                }
+
+                if (jsonContent != null) {
+                    val importData = com.shoppinglist.data.models.ExportableData.fromJson(jsonContent)
+                    if (importData != null) {
+                        val count = mainShoppingListViewModel.importFromData(importData)
+                        // Aquí podrías mostrar un mensaje de éxito
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }
