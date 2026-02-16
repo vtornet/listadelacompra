@@ -150,11 +150,21 @@ class ShoppingListViewModel : ViewModel() {
 
     fun inviteMember(email: String) {
         val listId = _currentListId.value
-        if (listId.isBlank()) return
+        if (listId.isBlank()) {
+            _error.value = "No hay ninguna lista seleccionada"
+            return
+        }
         viewModelScope.launch {
             withLoading {
                 repository.addMemberEmail(listId, email.trim())
-                _error.value = "$email ha sido añadido a esta lista. La persona deberá tener la app instalada e iniciar sesión con este email para ver la lista compartida."
+            }.onSuccess { added ->
+                _error.value = if (added) {
+                    "$email ha sido añadido a esta lista. La persona deberá tener la app instalada e iniciar sesión con este email para ver la lista compartida."
+                } else {
+                    "$email ya tiene acceso a esta lista."
+                }
+            }.onFailure { e ->
+                handleError(e, "No se pudo enviar la invitación.")
             }
         }
     }

@@ -128,15 +128,19 @@ class ShoppingListRepository {
         listsCol.document(id).delete().await()
     }
 
-    /** Añade email a membersEmails si no existía ya. */
-    suspend fun addMemberEmail(listId: String, email: String) {
+    /** Añade email a membersEmails si no existía ya. Devuelve true si se añadió, false si ya existía. */
+    suspend fun addMemberEmail(listId: String, email: String): Boolean {
         val ref = listsCol.document(listId)
-        firestore.runTransaction { tx ->
+        return firestore.runTransaction { tx ->
             val snap = tx.get(ref)
             val current = (snap.get("membersEmails") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
             val target = email.trim()
-            if (current.any { it.equals(target, ignoreCase = true) }) return@runTransaction
-            tx.update(ref, "membersEmails", current + target)
+            if (current.any { it.equals(target, ignoreCase = true) }) {
+                false // Ya existe
+            } else {
+                tx.update(ref, "membersEmails", current + target)
+                true // Añadido
+            }
         }.await()
     }
 
