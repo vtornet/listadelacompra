@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Lista de la compra</string>
+    <!-- Google Sign-In Client ID - Debe configurarse en Firebase Console -->
+    <string name="default_web_client_id">894341793325-rm6tvk9lml6b4cf54gdld48nmc8lnddl.apps.googleusercontent.com</string>
 </resources>

@@ -14,6 +14,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.ktx.Firebase
+import com.shoppinglist.R
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -26,6 +27,7 @@ class AuthViewModel : ViewModel() {
     private val auth: FirebaseAuth = Firebase.auth
     private lateinit var credentialManager: CredentialManager
     private lateinit var activity: Activity
+    private lateinit var context: Context
 
     private val authListener = FirebaseAuth.AuthStateListener { firebaseAuth ->
         Log.d(TAG, "Auth state changed, user: ${firebaseAuth.currentUser?.email}")
@@ -49,6 +51,7 @@ class AuthViewModel : ViewModel() {
         context: Context,
         act: Activity
     ) {
+        this.context = context
         credentialManager = CredentialManager.create(context)
         activity = act
         Log.d(TAG, "CredentialManager initialized")
@@ -59,22 +62,40 @@ class AuthViewModel : ViewModel() {
             _loading.value = true
             _error.value = null
             try {
-                if (!::credentialManager.isInitialized || !::activity.isInitialized) {
-                    _error.value = "CredentialManager no inicializado"
+                Log.d(TAG, "signInWithGoogle called")
+                Log.d(TAG, "credentialManager initialized: ${::credentialManager.isInitialized}")
+                Log.d(TAG, "activity initialized: ${::activity.isInitialized}")
+
+                if (!::credentialManager.isInitialized) {
+                    Log.e(TAG, "CredentialManager NOT initialized")
+                    _error.value = "Error: CredentialManager no inicializado. Intenta reiniciar la app."
+                    _loading.value = false
+                    return@launch
+                }
+
+                if (!::activity.isInitialized) {
+                    Log.e(TAG, "Activity NOT initialized")
+                    _error.value = "Error: Activity no inicializada. Intenta reiniciar la app."
                     _loading.value = false
                     return@launch
                 }
 
                 Log.d(TAG, "Starting Google Sign In flow")
+                // Obtener el Client ID desde recursos (debe coincidir con Firebase Console)
+                val serverClientId = context.getString(R.string.default_web_client_id)
+                Log.d(TAG, "Server Client ID: $serverClientId")
+
                 val googleIdOption = GetGoogleIdOption.Builder()
-                    .setServerClientId("894341793325-rm6tvk9lml6b4cf54gdld48nmc8lnddl.apps.googleusercontent.com")
+                    .setServerClientId(serverClientId)
                     .setFilterByAuthorizedAccounts(false)
+                    .setAutoSelectEnabled(false)
                     .build()
 
                 val request = GetCredentialRequest.Builder()
                     .addCredentialOption(googleIdOption)
                     .build()
 
+                Log.d(TAG, "Calling getCredential...")
                 val result = credentialManager.getCredential(
                     request = request,
                     context = activity
@@ -85,7 +106,7 @@ class AuthViewModel : ViewModel() {
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error in signInWithGoogle", e)
-                _error.value = e.message ?: "No se pudo iniciar sesión con Google."
+                _error.value = "Error: ${e.message ?: "No se pudo iniciar sesión con Google"}"
                 _loading.value = false
             }
         }

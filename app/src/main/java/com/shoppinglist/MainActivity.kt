@@ -37,7 +37,7 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(Unit) {
                 mainAuthViewModel.initCredentialManager(
-                    context = applicationContext,
+                    context = this@MainActivity,
                     act = this@MainActivity
                 )
             }
