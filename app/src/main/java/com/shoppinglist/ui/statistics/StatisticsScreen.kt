@@ -9,6 +9,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.shoppinglist.ui.shoppinglist.ShoppingListViewModel
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -34,6 +37,9 @@ fun StatisticsScreen(
     val viewModel: StatisticsViewModel = viewModel()
     val uiState by viewModel.uiState.collectAsState()
     val selectedPeriod by viewModel.selectedPeriod.collectAsState()
+    val selectedMonth by viewModel.selectedMonth.collectAsState()
+
+    var showMonthPicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.loadStatistics()
@@ -102,9 +108,25 @@ fun StatisticsScreen(
                     item {
                         PeriodFilterSelector(
                             selectedPeriod = selectedPeriod,
-                            onPeriodSelected = { viewModel.setPeriod(it) },
+                            onPeriodSelected = {
+                                viewModel.setPeriod(it)
+                                if (it == PeriodFilter.SPECIFIC_MONTH) {
+                                    showMonthPicker = true
+                                }
+                            },
                             periodInfo = state.periodInfo
                         )
+                    }
+
+                    // Selector de mes específico
+                    if (selectedPeriod == PeriodFilter.SPECIFIC_MONTH) {
+                        item {
+                            MonthYearSelector(
+                                selectedMonth = selectedMonth.first,
+                                selectedYear = selectedMonth.second,
+                                onMonthSelected = { month, year -> viewModel.setMonth(month, year) }
+                            )
+                        }
                     }
 
                     // Resumen general
@@ -197,7 +219,8 @@ private fun PeriodFilterSelector(
         PeriodFilter.TODAY to "Hoy",
         PeriodFilter.THIS_WEEK to "Semana",
         PeriodFilter.LAST_7_DAYS to "7 días",
-        PeriodFilter.THIS_MONTH to "Mes",
+        PeriodFilter.THIS_MONTH to "Mes actual",
+        PeriodFilter.SPECIFIC_MONTH to "Elegir mes",
         PeriodFilter.LAST_30_DAYS to "30 días",
         PeriodFilter.THIS_YEAR to "Año",
         PeriodFilter.ALL to "Todo"
@@ -591,6 +614,116 @@ private fun FrequentItemRow(
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
+        }
+    }
+}
+
+@Composable
+private fun MonthYearSelector(
+    selectedMonth: Int,
+    selectedYear: Int,
+    onMonthSelected: (month: Int, year: Int) -> Unit
+) {
+    val currentYear = Calendar.getInstance().get(Calendar.YEAR)
+    val years = (currentYear - 5)..(currentYear + 1)
+    val months = listOf(
+        0 to "Enero", 1 to "Febrero", 2 to "Marzo", 3 to "Abril",
+        4 to "Mayo", 5 to "Junio", 6 to "Julio", 7 to "Agosto",
+        8 to "Septiembre", 9 to "Octubre", 10 to "Noviembre", 11 to "Diciembre"
+    )
+
+    var expandedMonth by remember { mutableStateOf(false) }
+    var expandedYear by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "Seleccionar mes:",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            // Selectores de mes y año
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Selector de mes
+                Box(modifier = Modifier.weight(1f)) {
+                    OutlinedButton(
+                        onClick = { expandedMonth = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(months[selectedMonth].second)
+                        Icon(Icons.Default.ArrowDropDown, null)
+                    }
+                    DropdownMenu(
+                        expanded = expandedMonth,
+                        onDismissRequest = { expandedMonth = false }
+                    ) {
+                        months.forEach { (month, name) ->
+                            DropdownMenuItem(
+                                text = { Text(name) },
+                                onClick = {
+                                    onMonthSelected(month, selectedYear)
+                                    expandedMonth = false
+                                },
+                                leadingIcon = if (month == selectedMonth) {
+                                    {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                } else null
+                            )
+                        }
+                    }
+                }
+
+                // Selector de año
+                Box(modifier = Modifier.weight(1f)) {
+                    OutlinedButton(
+                        onClick = { expandedYear = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(selectedYear.toString())
+                        Icon(Icons.Default.ArrowDropDown, null)
+                    }
+                    DropdownMenu(
+                        expanded = expandedYear,
+                        onDismissRequest = { expandedYear = false }
+                    ) {
+                        years.toList().forEach { year ->
+                            DropdownMenuItem(
+                                text = { Text(year.toString()) },
+                                onClick = {
+                                    onMonthSelected(selectedMonth, year)
+                                    expandedYear = false
+                                },
+                                leadingIcon = if (year == selectedYear) {
+                                    {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                } else null
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

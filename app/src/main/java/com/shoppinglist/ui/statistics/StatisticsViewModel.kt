@@ -29,6 +29,10 @@ class StatisticsViewModel : ViewModel() {
     private val _selectedPeriod = MutableStateFlow(PeriodFilter.ALL)
     val selectedPeriod: StateFlow<PeriodFilter> = _selectedPeriod.asStateFlow()
 
+    // Estado para el filtro de mes específico
+    private val _selectedMonth = MutableStateFlow<Pair<Int, Int>>(Pair(Calendar.getInstance().get(Calendar.MONTH), Calendar.getInstance().get(Calendar.YEAR)))
+    val selectedMonth: StateFlow<Pair<Int, Int>> = _selectedMonth.asStateFlow()
+
     // Caché de items para evitar recargas innecesarias
     private var cachedItems: List<ShoppingItem> = emptyList()
     private var cachedLists: List<ShoppingList> = emptyList()
@@ -139,7 +143,7 @@ class StatisticsViewModel : ViewModel() {
     }
 
     private fun getMinDateForPeriod(period: PeriodFilter): Long? {
-        if (period == PeriodFilter.ALL) return null
+        if (period == PeriodFilter.ALL || period == PeriodFilter.SPECIFIC_MONTH) return null
 
         val calendar = Calendar.getInstance()
         return when (period) {
@@ -182,7 +186,7 @@ class StatisticsViewModel : ViewModel() {
                 calendar.set(Calendar.MILLISECOND, 0)
                 calendar.timeInMillis
             }
-            PeriodFilter.ALL -> null
+            else -> null
         }
     }
 
@@ -232,6 +236,12 @@ class StatisticsViewModel : ViewModel() {
                 startTime.set(Calendar.SECOND, 0)
                 startTime.set(Calendar.MILLISECOND, 0)
             }
+            PeriodFilter.SPECIFIC_MONTH -> {
+                // Mes específico seleccionado
+                val (month, year) = _selectedMonth.value
+                startTime.set(year, month, 1, 0, 0, 0)
+                startTime.set(Calendar.MILLISECOND, 0)
+            }
             PeriodFilter.ALL -> {
                 // No filtrar
             }
@@ -270,6 +280,13 @@ class StatisticsViewModel : ViewModel() {
                 startTime.set(Calendar.DAY_OF_YEAR, 1)
                 "Este año"
             }
+            PeriodFilter.SPECIFIC_MONTH -> {
+                val (month, year) = _selectedMonth.value
+                startTime.set(year, month, 1, 0, 0, 0)
+                val monthNames = arrayOf("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre")
+                "${monthNames[month]} $year"
+            }
             PeriodFilter.ALL -> {
                 startTime.timeInMillis = 0
                 "Histórico"
@@ -281,6 +298,14 @@ class StatisticsViewModel : ViewModel() {
             startDate = startTime.timeInMillis,
             endDate = now.timeInMillis
         )
+    }
+
+    /**
+     * Establece el mes específico seleccionado (0-11 para enero-diciembre)
+     */
+    fun setMonth(month: Int, year: Int) {
+        _selectedMonth.value = Pair(month, year)
+        loadStatistics(forceRefresh = false)
     }
 
     private fun calculateGeneralStats(items: List<ShoppingItem>, lists: List<ShoppingList>): GeneralStats {
@@ -375,6 +400,7 @@ enum class PeriodFilter {
     THIS_MONTH,
     LAST_30_DAYS,
     THIS_YEAR,
+    SPECIFIC_MONTH,  // Nuevo filtro para mes específico
     ALL
 }
 
